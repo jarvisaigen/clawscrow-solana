@@ -11,3 +11,4 @@ target/deploy/clawscrow-keypair.json
 *.log
 .DS_Store
 Cargo.lock
+data/
