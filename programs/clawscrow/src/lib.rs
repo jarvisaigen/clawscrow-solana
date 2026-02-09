@@ -7,7 +7,6 @@ declare_id!("7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7");
 pub mod clawscrow {
     use super::*;
 
-    /// Create a new escrow job
     pub fn create_escrow(
         ctx: Context<CreateEscrow>,
         escrow_id: u64,
@@ -34,9 +33,10 @@ pub mod clawscrow {
         escrow.state = EscrowState::Created;
         escrow.delivery_hash = [0u8; 32];
         escrow.created_at = Clock::get()?.unix_timestamp;
+        escrow.delivered_at = 0;
         escrow.bump = ctx.bumps.escrow;
+        escrow.vault_bump = ctx.bumps.vault;
 
-        // Transfer payment + buyer collateral to vault
         let total = payment_amount.checked_add(buyer_collateral)
             .ok_or(ClawscrowError::Overflow)?;
 
@@ -63,15 +63,16 @@ pub mod clawscrow {
         Ok(())
     }
 
-    /// Seller accepts the job and deposits collateral
-    pub fn accept_escrow(ctx: Context<AcceptEscrow>) -> Result<()> {
+    pub fn accept_escrow(ctx: Context<AcceptEscrow>, escrow_id: u64) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow;
         require!(escrow.state == EscrowState::Created, ClawscrowError::InvalidState);
+        require!(escrow.escrow_id == escrow_id, ClawscrowError::InvalidState);
+        let collateral = escrow.seller_collateral;
+        let eid = escrow.escrow_id;
 
         escrow.seller = ctx.accounts.seller.key();
         escrow.state = EscrowState::Accepted;
 
-        // Transfer seller collateral to vault
         token::transfer(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
@@ -81,18 +82,14 @@ pub mod clawscrow {
                     authority: ctx.accounts.seller.to_account_info(),
                 },
             ),
-            escrow.seller_collateral,
+            collateral,
         )?;
 
-        emit!(EscrowAccepted {
-            escrow_id: escrow.escrow_id,
-            seller: ctx.accounts.seller.key(),
-        });
+        emit!(EscrowAccepted { escrow_id: eid, seller: ctx.accounts.seller.key() });
 
         Ok(())
     }
 
-    /// Seller delivers work (stores hash of delivered content)
     pub fn deliver(ctx: Context<Deliver>, delivery_hash: [u8; 32]) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow;
         require!(escrow.state == EscrowState::Accepted, ClawscrowError::InvalidState);
@@ -102,32 +99,27 @@ pub mod clawscrow {
         escrow.state = EscrowState::Delivered;
         escrow.delivered_at = Clock::get()?.unix_timestamp;
 
-        emit!(WorkDelivered {
-            escrow_id: escrow.escrow_id,
-            delivery_hash,
-        });
+        emit!(WorkDelivered { escrow_id: escrow.escrow_id, delivery_hash });
 
         Ok(())
     }
 
-    /// Buyer approves the delivery — releases payment + collateral
-    pub fn approve(ctx: Context<Resolve>) -> Result<()> {
-        let escrow = &mut ctx.accounts.escrow;
+    pub fn approve(ctx: Context<Resolve>, escrow_id: u64) -> Result<()> {
+        let escrow = &ctx.accounts.escrow;
         require!(escrow.state == EscrowState::Delivered, ClawscrowError::InvalidState);
         require!(ctx.accounts.signer.key() == escrow.buyer, ClawscrowError::Unauthorized);
+        require!(escrow.escrow_id == escrow_id, ClawscrowError::InvalidState);
 
-        escrow.state = EscrowState::Approved;
+        let payment = escrow.payment_amount;
+        let seller_col = escrow.seller_collateral;
+        let buyer_col = escrow.buyer_collateral;
+        let bump = escrow.bump;
 
-        let seeds = &[
-            b"escrow",
-            &escrow.escrow_id.to_le_bytes(),
-            &[escrow.bump],
-        ];
-        let signer_seeds = &[&seeds[..]];
+        let id_bytes = escrow_id.to_le_bytes();
+        let seeds: &[&[u8]] = &[b"escrow", id_bytes.as_ref(), &[bump]];
+        let signer_seeds = &[seeds];
 
-        // Pay seller: payment + seller collateral back
-        let seller_total = escrow.payment_amount.checked_add(escrow.seller_collateral)
-            .ok_or(ClawscrowError::Overflow)?;
+        let seller_total = payment.checked_add(seller_col).ok_or(ClawscrowError::Overflow)?;
 
         token::transfer(
             CpiContext::new_with_signer(
@@ -142,7 +134,6 @@ pub mod clawscrow {
             seller_total,
         )?;
 
-        // Return buyer collateral
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -153,70 +144,62 @@ pub mod clawscrow {
                 },
                 signer_seeds,
             ),
-            escrow.buyer_collateral,
+            buyer_col,
         )?;
 
-        emit!(EscrowApproved {
-            escrow_id: escrow.escrow_id,
-        });
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.state = EscrowState::Approved;
+
+        emit!(EscrowApproved { escrow_id });
 
         Ok(())
     }
 
-    /// Buyer raises a dispute
-    pub fn dispute(ctx: Context<Resolve>) -> Result<()> {
+    pub fn raise_dispute(ctx: Context<DisputeCtx>) -> Result<()> {
         let escrow = &mut ctx.accounts.escrow;
         require!(escrow.state == EscrowState::Delivered, ClawscrowError::InvalidState);
-        require!(ctx.accounts.signer.key() == escrow.buyer, ClawscrowError::Unauthorized);
+        require!(ctx.accounts.buyer.key() == escrow.buyer, ClawscrowError::Unauthorized);
 
         escrow.state = EscrowState::Disputed;
 
-        emit!(EscrowDisputed {
-            escrow_id: escrow.escrow_id,
-        });
+        emit!(EscrowDisputed { escrow_id: escrow.escrow_id });
 
         Ok(())
     }
 
-    /// Arbitrator resolves dispute — winner gets payment + both collaterals (minus fee)
-    pub fn arbitrate(
-        ctx: Context<Arbitrate>,
-        ruling: Ruling,
-    ) -> Result<()> {
-        let escrow = &mut ctx.accounts.escrow;
+    pub fn arbitrate(ctx: Context<Arbitrate>, escrow_id: u64, ruling: Ruling) -> Result<()> {
+        let escrow = &ctx.accounts.escrow;
         require!(escrow.state == EscrowState::Disputed, ClawscrowError::InvalidState);
         require!(ctx.accounts.arbitrator.key() == escrow.arbitrator, ClawscrowError::Unauthorized);
+        require!(escrow.escrow_id == escrow_id, ClawscrowError::InvalidState);
 
-        let seeds = &[
-            b"escrow",
-            &escrow.escrow_id.to_le_bytes(),
-            &[escrow.bump],
-        ];
-        let signer_seeds = &[&seeds[..]];
+        let payment = escrow.payment_amount;
+        let buyer_col = escrow.buyer_collateral;
+        let seller_col = escrow.seller_collateral;
+        let bump = escrow.bump;
 
-        let total_pool = escrow.payment_amount
-            .checked_add(escrow.buyer_collateral)
-            .ok_or(ClawscrowError::Overflow)?
-            .checked_add(escrow.seller_collateral)
-            .ok_or(ClawscrowError::Overflow)?;
+        let id_bytes = escrow_id.to_le_bytes();
+        let seeds: &[&[u8]] = &[b"escrow", id_bytes.as_ref(), &[bump]];
+        let signer_seeds = &[seeds];
 
-        // 1% arbitrator fee from buyer collateral
-        let arb_fee = escrow.buyer_collateral / 100;
-        let winner_amount = total_pool.checked_sub(arb_fee)
-            .ok_or(ClawscrowError::Overflow)?;
+        let total_pool = payment
+            .checked_add(buyer_col).ok_or(ClawscrowError::Overflow)?
+            .checked_add(seller_col).ok_or(ClawscrowError::Overflow)?;
+
+        let arb_fee = buyer_col / 100;
+        let winner_amount = total_pool.checked_sub(arb_fee).ok_or(ClawscrowError::Overflow)?;
 
         let winner_token = match ruling {
-            Ruling::BuyerWins => &ctx.accounts.buyer_token,
-            Ruling::SellerWins => &ctx.accounts.seller_token,
+            Ruling::BuyerWins => ctx.accounts.buyer_token.to_account_info(),
+            Ruling::SellerWins => ctx.accounts.seller_token.to_account_info(),
         };
 
-        // Pay winner
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 Transfer {
                     from: ctx.accounts.vault.to_account_info(),
-                    to: winner_token.to_account_info(),
+                    to: winner_token,
                     authority: ctx.accounts.escrow.to_account_info(),
                 },
                 signer_seeds,
@@ -224,7 +207,6 @@ pub mod clawscrow {
             winner_amount,
         )?;
 
-        // Pay arbitrator fee
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -238,43 +220,36 @@ pub mod clawscrow {
             arb_fee,
         )?;
 
+        let escrow = &mut ctx.accounts.escrow;
         escrow.state = match ruling {
             Ruling::BuyerWins => EscrowState::ResolvedBuyer,
             Ruling::SellerWins => EscrowState::ResolvedSeller,
         };
 
-        emit!(DisputeResolved {
-            escrow_id: escrow.escrow_id,
-            ruling: ruling.clone(),
-        });
+        emit!(DisputeResolved { escrow_id, ruling });
 
         Ok(())
     }
 
-    /// Auto-approve after review period (anyone can call)
-    pub fn auto_approve(ctx: Context<Resolve>) -> Result<()> {
-        let escrow = &mut ctx.accounts.escrow;
+    pub fn auto_approve(ctx: Context<Resolve>, escrow_id: u64) -> Result<()> {
+        let escrow = &ctx.accounts.escrow;
         require!(escrow.state == EscrowState::Delivered, ClawscrowError::InvalidState);
+        require!(escrow.escrow_id == escrow_id, ClawscrowError::InvalidState);
 
-        let review_period: i64 = 3 * 24 * 60 * 60; // 3 days
+        let review_period: i64 = 3 * 24 * 60 * 60;
         let now = Clock::get()?.unix_timestamp;
-        require!(
-            now >= escrow.delivered_at + review_period,
-            ClawscrowError::ReviewPeriodActive
-        );
+        require!(now >= escrow.delivered_at + review_period, ClawscrowError::ReviewPeriodActive);
 
-        escrow.state = EscrowState::Approved;
+        let payment = escrow.payment_amount;
+        let seller_col = escrow.seller_collateral;
+        let buyer_col = escrow.buyer_collateral;
+        let bump = escrow.bump;
 
-        let seeds = &[
-            b"escrow",
-            &escrow.escrow_id.to_le_bytes(),
-            &[escrow.bump],
-        ];
-        let signer_seeds = &[&seeds[..]];
+        let id_bytes = escrow_id.to_le_bytes();
+        let seeds: &[&[u8]] = &[b"escrow", id_bytes.as_ref(), &[bump]];
+        let signer_seeds = &[seeds];
 
-        // Same as approve — pay seller and return buyer collateral
-        let seller_total = escrow.payment_amount.checked_add(escrow.seller_collateral)
-            .ok_or(ClawscrowError::Overflow)?;
+        let seller_total = payment.checked_add(seller_col).ok_or(ClawscrowError::Overflow)?;
 
         token::transfer(
             CpiContext::new_with_signer(
@@ -299,12 +274,13 @@ pub mod clawscrow {
                 },
                 signer_seeds,
             ),
-            escrow.buyer_collateral,
+            buyer_col,
         )?;
 
-        emit!(EscrowApproved {
-            escrow_id: escrow.escrow_id,
-        });
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.state = EscrowState::Approved;
+
+        emit!(EscrowApproved { escrow_id });
 
         Ok(())
     }
@@ -351,21 +327,27 @@ pub struct CreateEscrow<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(escrow_id: u64)]
 pub struct AcceptEscrow<'info> {
     #[account(mut)]
     pub seller: Signer<'info>,
 
-    #[account(mut, has_one = arbitrator)]
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow_id.to_le_bytes().as_ref()],
+        bump = escrow.bump,
+    )]
     pub escrow: Account<'info, Escrow>,
 
-    #[account(mut, seeds = [b"vault", escrow.escrow_id.to_le_bytes().as_ref()], bump)]
+    #[account(
+        mut,
+        seeds = [b"vault", escrow_id.to_le_bytes().as_ref()],
+        bump = escrow.vault_bump,
+    )]
     pub vault: Account<'info, TokenAccount>,
 
     #[account(mut)]
     pub seller_token: Account<'info, TokenAccount>,
-
-    /// CHECK: verified via has_one
-    pub arbitrator: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -380,14 +362,32 @@ pub struct Deliver<'info> {
 }
 
 #[derive(Accounts)]
+pub struct DisputeCtx<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+
+    #[account(mut)]
+    pub escrow: Account<'info, Escrow>,
+}
+
+#[derive(Accounts)]
+#[instruction(escrow_id: u64)]
 pub struct Resolve<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow_id.to_le_bytes().as_ref()],
+        bump = escrow.bump,
+    )]
     pub escrow: Account<'info, Escrow>,
 
-    #[account(mut, seeds = [b"vault", escrow.escrow_id.to_le_bytes().as_ref()], bump)]
+    #[account(
+        mut,
+        seeds = [b"vault", escrow_id.to_le_bytes().as_ref()],
+        bump = escrow.vault_bump,
+    )]
     pub vault: Account<'info, TokenAccount>,
 
     #[account(mut)]
@@ -400,14 +400,24 @@ pub struct Resolve<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(escrow_id: u64)]
 pub struct Arbitrate<'info> {
     #[account(mut)]
     pub arbitrator: Signer<'info>,
 
-    #[account(mut, has_one = arbitrator)]
+    #[account(
+        mut,
+        seeds = [b"escrow", escrow_id.to_le_bytes().as_ref()],
+        bump = escrow.bump,
+        has_one = arbitrator,
+    )]
     pub escrow: Account<'info, Escrow>,
 
-    #[account(mut, seeds = [b"vault", escrow.escrow_id.to_le_bytes().as_ref()], bump)]
+    #[account(
+        mut,
+        seeds = [b"vault", escrow_id.to_le_bytes().as_ref()],
+        bump = escrow.vault_bump,
+    )]
     pub vault: Account<'info, TokenAccount>,
 
     #[account(mut)]
@@ -442,6 +452,7 @@ pub struct Escrow {
     pub created_at: i64,
     pub delivered_at: i64,
     pub bump: u8,
+    pub vault_bump: u8,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
