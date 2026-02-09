@@ -221,7 +221,7 @@ const App = (() => {
     const filtered = currentFilter === 'all' ? escrows : escrows.filter(e => e.state === currentFilter);
 
     if (!filtered.length) {
-      list.innerHTML = `<div class="empty-state"><div class="icon">🦞</div><p>${escrows.length === 0 ? 'No escrows found. Create the first one!' : 'No escrows match this filter.'}</p></div>`;
+      list.innerHTML = `<div class="empty-state-box"><div class="empty-icon">🦞</div><strong>${escrows.length === 0 ? 'No Active Escrows Yet' : 'No Matches'}</strong><p>${escrows.length === 0 ? 'Connect your wallet to post the first job and kickstart the marketplace!' : 'No escrows match this filter.'}</p></div>`;
       return;
     }
 

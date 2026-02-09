@@ -640,3 +640,60 @@ section { padding: 50px 2rem; max-width: 1200px; margin: 0 auto; }
 .file-hash-info { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
 .file-hash-info code { font-family: var(--font-mono); background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; }
 .btn-sm { padding: 4px 12px !important; font-size: 0.8rem !important; }
+
+/* ═══ VISUAL POLISH ═══ */
+
+/* Scroll reveal animations */
+.reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.6s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1); }
+.reveal.revealed { opacity: 1; transform: translateY(0); }
+
+/* Stagger children */
+.workflow-card:nth-child(2), .step-card:nth-child(2), .model-card:nth-child(2), .arch-card:nth-child(2) { transition-delay: 0.08s; }
+.workflow-card:nth-child(3), .step-card:nth-child(3), .model-card:nth-child(3), .arch-card:nth-child(3) { transition-delay: 0.16s; }
+.workflow-card:nth-child(4), .step-card:nth-child(4), .model-card:nth-child(4), .arch-card:nth-child(4) { transition-delay: 0.24s; }
+
+/* Enhanced hover effects */
+.step-card:hover, .workflow-card:hover, .arch-card:hover {
+  border-color: var(--accent) !important;
+  transform: translateY(-6px) !important;
+  box-shadow: 0 16px 40px rgba(232,65,66,0.12), 0 0 60px rgba(232,65,66,0.05) !important;
+}
+.model-card:hover { transform: translateY(-4px) !important; box-shadow: 0 12px 30px rgba(0,0,0,0.4) !important; }
+.status-card:hover { border-color: var(--accent) !important; }
+
+/* Colored step numbers for How It Works */
+.step-card:nth-child(1) .step-number { color: #00b4d8 !important; }
+.step-card:nth-child(2) .step-number { color: #9945ff !important; }
+.step-card:nth-child(3) .step-number { color: #00d68f !important; }
+.step-card:nth-child(4) .step-number { color: #e84142 !important; }
+
+/* Colored workflow step indicators */
+.workflow-card:nth-child(1) .workflow-step { background: rgba(0,180,216,0.15) !important; border-color: rgba(0,180,216,0.3) !important; color: #00b4d8 !important; }
+.workflow-card:nth-child(2) .workflow-step { background: rgba(153,69,255,0.15) !important; border-color: rgba(153,69,255,0.3) !important; color: #9945ff !important; }
+.workflow-card:nth-child(3) .workflow-step { background: rgba(0,214,143,0.15) !important; border-color: rgba(0,214,143,0.3) !important; color: #00d68f !important; }
+.workflow-card:nth-child(4) .workflow-step { background: rgba(232,65,66,0.15) !important; border-color: rgba(232,65,66,0.3) !important; color: #e84142 !important; }
+
+/* Enhanced empty state */
+.empty-state-box {
+  text-align: center; padding: 48px 24px;
+  background: var(--bg-card, #181b27); border: 1px dashed var(--border, #2a2e42);
+  border-radius: 16px; max-width: 480px; margin: 0 auto;
+  color: var(--text-secondary, #8b8fa3);
+}
+.empty-state-box strong { display: block; color: var(--text-primary, #f0f0f5); font-size: 1.1rem; margin-bottom: 8px; }
+.empty-state-box p { font-size: 0.9rem; line-height: 1.6; }
+.empty-icon { font-size: 3rem; margin-bottom: 12px; animation: emptyFloat 3s ease-in-out infinite; }
+@keyframes emptyFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+/* Hero glow pulse */
+.hero::after {
+  content: ''; position: absolute; top: 30%; left: 50%;
+  width: 700px; height: 700px;
+  background: radial-gradient(circle, rgba(232,65,66,0.06) 0%, transparent 70%);
+  transform: translate(-50%, -50%); pointer-events: none; border-radius: 50%;
+  animation: heroGlow 5s ease-in-out infinite;
+}
+@keyframes heroGlow { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* Footer gradient */
+.footer { background: linear-gradient(180deg, transparent 0%, rgba(232,65,66,0.02) 100%) !important; }
