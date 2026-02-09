@@ -6,168 +6,146 @@ import {
   createAccount,
   mintTo,
   getAccount,
-  TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { assert } from "chai";
 
 describe("clawscrow", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.Clawscrow as Program<Clawscrow>;
 
-  // Actors
-  const buyer = anchor.web3.Keypair.generate();
+  const program = anchor.workspace.Clawscrow as Program<Clawscrow>;
+  const payer = provider.wallet as anchor.Wallet;
+
+  let usdcMint: anchor.web3.PublicKey;
+  let buyerToken: anchor.web3.PublicKey;
+  let sellerToken: anchor.web3.PublicKey;
+  let arbitratorToken: anchor.web3.PublicKey;
+
   const seller = anchor.web3.Keypair.generate();
   const arbitrator = anchor.web3.Keypair.generate();
-  const protocolFeeWallet = anchor.web3.Keypair.generate();
 
-  let mint: anchor.web3.PublicKey;
-  let buyerAta: anchor.web3.PublicKey;
-  let sellerAta: anchor.web3.PublicKey;
-  let protocolFeeAta: anchor.web3.PublicKey;
+  const ESCROW_ID = new anchor.BN(1);
+  const PAYMENT = new anchor.BN(1_000_000); // 1 USDC (6 decimals)
+  const BUYER_COLLATERAL = new anchor.BN(100_000); // 0.1 USDC
+  const SELLER_COLLATERAL = new anchor.BN(50_000); // 0.05 USDC
+  const DEADLINE = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
 
-  const escrowId = new anchor.BN(1);
-  const paymentAmount = new anchor.BN(100_000_000); // 100 USDC (6 decimals)
-  const collateralAmount = new anchor.BN(10_000_000); // 10 USDC
-  const descriptionHash = Buffer.alloc(32, 1);
-  const deliveryHash = Buffer.alloc(32, 2);
-
-  function findEscrowPda(id: anchor.BN) {
-    return anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), id.toArrayLike(Buffer, "le", 8)],
-      program.programId
-    );
-  }
-
-  function findVaultPda(id: anchor.BN) {
-    return anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("vault"), id.toArrayLike(Buffer, "le", 8)],
-      program.programId
-    );
-  }
+  let escrowPda: anchor.web3.PublicKey;
+  let vaultPda: anchor.web3.PublicKey;
 
   before(async () => {
-    // Airdrop SOL to all actors
-    for (const kp of [buyer, seller, arbitrator, protocolFeeWallet]) {
-      const sig = await provider.connection.requestAirdrop(
-        kp.publicKey,
-        2 * anchor.web3.LAMPORTS_PER_SOL
-      );
-      await provider.connection.confirmTransaction(sig);
-    }
+    // Fund seller and arbitrator
+    const sig1 = await provider.connection.requestAirdrop(seller.publicKey, 2e9);
+    const sig2 = await provider.connection.requestAirdrop(arbitrator.publicKey, 2e9);
+    await provider.connection.confirmTransaction(sig1);
+    await provider.connection.confirmTransaction(sig2);
 
-    // Create USDC-like mint
-    mint = await createMint(
+    // Create USDC mint
+    usdcMint = await createMint(
       provider.connection,
-      buyer,
-      buyer.publicKey,
+      payer.payer,
+      payer.publicKey,
       null,
       6
     );
 
-    // Create ATAs
-    buyerAta = await createAccount(
+    // Create token accounts
+    buyerToken = await createAccount(
       provider.connection,
-      buyer,
-      mint,
-      buyer.publicKey
+      payer.payer,
+      usdcMint,
+      payer.publicKey
     );
-    sellerAta = await createAccount(
+    sellerToken = await createAccount(
       provider.connection,
-      seller,
-      mint,
+      payer.payer,
+      usdcMint,
       seller.publicKey
     );
-    protocolFeeAta = await createAccount(
+    arbitratorToken = await createAccount(
       provider.connection,
-      protocolFeeWallet,
-      mint,
-      protocolFeeWallet.publicKey
+      payer.payer,
+      usdcMint,
+      arbitrator.publicKey
     );
 
-    // Mint tokens to buyer
-    await mintTo(
-      provider.connection,
-      buyer,
-      mint,
-      buyerAta,
-      buyer,
-      200_000_000
+    // Mint USDC to buyer and seller
+    await mintTo(provider.connection, payer.payer, usdcMint, buyerToken, payer.payer, 10_000_000);
+    await mintTo(provider.connection, payer.payer, usdcMint, sellerToken, payer.payer, 1_000_000);
+
+    // Derive PDAs
+    [escrowPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), ESCROW_ID.toArrayLike(Buffer, "le", 8)],
+      program.programId
+    );
+    [vaultPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), ESCROW_ID.toArrayLike(Buffer, "le", 8)],
+      program.programId
     );
   });
 
   it("Creates an escrow", async () => {
-    const [escrowPda] = findEscrowPda(escrowId);
-    const [vaultPda] = findVaultPda(escrowId);
-
     await program.methods
       .createEscrow(
-        escrowId,
-        paymentAmount,
-        collateralAmount,
-        Array.from(descriptionHash)
+        ESCROW_ID,
+        "Write a haiku about lobsters",
+        PAYMENT,
+        BUYER_COLLATERAL,
+        SELLER_COLLATERAL,
+        DEADLINE
       )
       .accounts({
-        buyer: buyer.publicKey,
-        arbitrator: arbitrator.publicKey,
-        mint,
+        buyer: payer.publicKey,
         escrow: escrowPda,
         vault: vaultPda,
-        buyerTokenAccount: buyerAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        buyerToken,
+        usdcMint,
+        arbitrator: arbitrator.publicKey,
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
         systemProgram: anchor.web3.SystemProgram.programId,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
       })
-      .signers([buyer])
       .rpc();
 
     const escrow = await program.account.escrow.fetch(escrowPda);
-    assert.equal(escrow.state.open !== undefined, true);
-    assert.equal(escrow.paymentAmount.toNumber(), 100_000_000);
+    assert.equal(escrow.escrowId.toNumber(), 1);
+    assert.equal(escrow.paymentAmount.toNumber(), 1_000_000);
+    assert.deepEqual(escrow.state, { created: {} });
+    assert.equal(escrow.description, "Write a haiku about lobsters");
 
+    // Vault should have payment + buyer collateral
     const vault = await getAccount(provider.connection, vaultPda);
-    assert.equal(Number(vault.amount), 110_000_000); // payment + collateral
+    assert.equal(Number(vault.amount), 1_100_000);
   });
 
-  it("Seller accepts escrow", async () => {
-    const [escrowPda] = findEscrowPda(escrowId);
-    const [vaultPda] = findVaultPda(escrowId);
-
-    // Mint collateral to seller
-    await mintTo(
-      provider.connection,
-      buyer,
-      mint,
-      sellerAta,
-      buyer,
-      10_000_000
-    );
-
+  it("Seller accepts the escrow", async () => {
     await program.methods
-      .acceptEscrow()
+      .acceptEscrow(ESCROW_ID)
       .accounts({
         seller: seller.publicKey,
         escrow: escrowPda,
         vault: vaultPda,
-        sellerTokenAccount: sellerAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        sellerToken,
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
       })
       .signers([seller])
       .rpc();
 
     const escrow = await program.account.escrow.fetch(escrowPda);
-    assert.equal(escrow.state.active !== undefined, true);
-    assert.equal(escrow.seller.toBase58(), seller.publicKey.toBase58());
+    assert.deepEqual(escrow.state, { accepted: {} });
+    assert.ok(escrow.seller.equals(seller.publicKey));
 
+    // Vault should now also have seller collateral
     const vault = await getAccount(provider.connection, vaultPda);
-    assert.equal(Number(vault.amount), 120_000_000); // payment + 2*collateral
+    assert.equal(Number(vault.amount), 1_150_000);
   });
 
   it("Seller delivers work", async () => {
-    const [escrowPda] = findEscrowPda(escrowId);
+    const hash = Buffer.alloc(32);
+    Buffer.from("deadbeef", "hex").copy(hash);
 
     await program.methods
-      .deliver(Array.from(deliveryHash))
+      .deliver(Array.from(hash) as any)
       .accounts({
         seller: seller.publicKey,
         escrow: escrowPda,
@@ -176,132 +154,134 @@ describe("clawscrow", () => {
       .rpc();
 
     const escrow = await program.account.escrow.fetch(escrowPda);
-    assert.equal(escrow.state.delivered !== undefined, true);
-    assert.deepEqual(escrow.deliveryHash, Array.from(deliveryHash));
+    assert.deepEqual(escrow.state, { delivered: {} });
+    assert.ok(escrow.deliveredAt.toNumber() > 0);
   });
 
   it("Buyer approves delivery", async () => {
-    const [escrowPda] = findEscrowPda(escrowId);
-    const [vaultPda] = findVaultPda(escrowId);
+    const buyerBefore = await getAccount(provider.connection, buyerToken);
+    const sellerBefore = await getAccount(provider.connection, sellerToken);
 
     await program.methods
-      .approve()
+      .approve(ESCROW_ID)
       .accounts({
-        caller: buyer.publicKey,
+        signer: payer.publicKey,
         escrow: escrowPda,
         vault: vaultPda,
-        sellerTokenAccount: sellerAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        buyerToken,
+        sellerToken,
+        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
       })
-      .signers([buyer])
       .rpc();
 
     const escrow = await program.account.escrow.fetch(escrowPda);
-    assert.equal(escrow.state.approved !== undefined, true);
+    assert.deepEqual(escrow.state, { approved: {} });
 
-    const sellerAccount = await getAccount(provider.connection, sellerAta);
-    assert.equal(Number(sellerAccount.amount), 120_000_000); // payment + 2*collateral
+    // Seller gets payment + seller collateral
+    const sellerAfter = await getAccount(provider.connection, sellerToken);
+    assert.equal(
+      Number(sellerAfter.amount) - Number(sellerBefore.amount),
+      1_050_000 // payment + seller_collateral
+    );
+
+    // Buyer gets buyer collateral back
+    const buyerAfter = await getAccount(provider.connection, buyerToken);
+    assert.equal(
+      Number(buyerAfter.amount) - Number(buyerBefore.amount),
+      100_000 // buyer_collateral
+    );
   });
 
-  // ─── Dispute flow (separate escrow) ─────────────────────────────────────
+  // --- Dispute flow ---
+  describe("Dispute flow", () => {
+    const ESCROW_ID_2 = new anchor.BN(2);
+    let escrowPda2: anchor.web3.PublicKey;
+    let vaultPda2: anchor.web3.PublicKey;
 
-  const escrowId2 = new anchor.BN(2);
+    before(async () => {
+      [escrowPda2] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), ESCROW_ID_2.toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
+      [vaultPda2] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("vault"), ESCROW_ID_2.toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
 
-  it("Full dispute → arbitrate flow", async () => {
-    const [escrowPda] = findEscrowPda(escrowId2);
-    const [vaultPda] = findVaultPda(escrowId2);
+      // Mint more tokens
+      await mintTo(provider.connection, payer.payer, usdcMint, buyerToken, payer.payer, 10_000_000);
+      await mintTo(provider.connection, payer.payer, usdcMint, sellerToken, payer.payer, 1_000_000);
 
-    // Mint more tokens to buyer and seller
-    await mintTo(provider.connection, buyer, mint, buyerAta, buyer, 200_000_000);
-    await mintTo(provider.connection, buyer, mint, sellerAta, buyer, 10_000_000);
+      // Create, accept, deliver
+      await program.methods
+        .createEscrow(ESCROW_ID_2, "Disputed task", PAYMENT, BUYER_COLLATERAL, SELLER_COLLATERAL, DEADLINE)
+        .accounts({
+          buyer: payer.publicKey,
+          escrow: escrowPda2,
+          vault: vaultPda2,
+          buyerToken,
+          usdcMint,
+          arbitrator: arbitrator.publicKey,
+          tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
 
-    // Create
-    await program.methods
-      .createEscrow(
-        escrowId2,
-        paymentAmount,
-        collateralAmount,
-        Array.from(descriptionHash)
-      )
-      .accounts({
-        buyer: buyer.publicKey,
-        arbitrator: arbitrator.publicKey,
-        mint,
-        escrow: escrowPda,
-        vault: vaultPda,
-        buyerTokenAccount: buyerAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      })
-      .signers([buyer])
-      .rpc();
+      await program.methods
+        .acceptEscrow(ESCROW_ID_2)
+        .accounts({ seller: seller.publicKey, escrow: escrowPda2, vault: vaultPda2, sellerToken, tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID })
+        .signers([seller])
+        .rpc();
 
-    // Accept
-    await program.methods
-      .acceptEscrow()
-      .accounts({
-        seller: seller.publicKey,
-        escrow: escrowPda,
-        vault: vaultPda,
-        sellerTokenAccount: sellerAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([seller])
-      .rpc();
+      await program.methods
+        .deliver(Array.from(Buffer.alloc(32)) as any)
+        .accounts({ seller: seller.publicKey, escrow: escrowPda2 })
+        .signers([seller])
+        .rpc();
+    });
 
-    // Deliver
-    await program.methods
-      .deliver(Array.from(deliveryHash))
-      .accounts({
-        seller: seller.publicKey,
-        escrow: escrowPda,
-      })
-      .signers([seller])
-      .rpc();
+    it("Buyer raises dispute", async () => {
+      await program.methods
+        .raiseDispute()
+        .accounts({ buyer: payer.publicKey, escrow: escrowPda2 })
+        .rpc();
 
-    // Dispute
-    await program.methods
-      .dispute()
-      .accounts({
-        buyer: buyer.publicKey,
-        escrow: escrowPda,
-      })
-      .signers([buyer])
-      .rpc();
+      const escrow = await program.account.escrow.fetch(escrowPda2);
+      assert.deepEqual(escrow.state, { disputed: {} });
+    });
 
-    let escrow = await program.account.escrow.fetch(escrowPda);
-    assert.equal(escrow.state.disputed !== undefined, true);
+    it("Arbitrator rules in buyer's favor", async () => {
+      const buyerBefore = await getAccount(provider.connection, buyerToken);
 
-    // Arbitrate — buyer wins
-    const buyerBalanceBefore = Number(
-      (await getAccount(provider.connection, buyerAta)).amount
-    );
+      await program.methods
+        .arbitrate(ESCROW_ID_2, { buyerWins: {} })
+        .accounts({
+          arbitrator: arbitrator.publicKey,
+          escrow: escrowPda2,
+          vault: vaultPda2,
+          buyerToken,
+          sellerToken,
+          arbitratorToken,
+          tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+        })
+        .signers([arbitrator])
+        .rpc();
 
-    await program.methods
-      .arbitrate(true)
-      .accounts({
-        arbitrator: arbitrator.publicKey,
-        escrow: escrowPda,
-        vault: vaultPda,
-        winnerTokenAccount: buyerAta,
-        protocolFeeAccount: protocolFeeAta,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([arbitrator])
-      .rpc();
+      const escrow = await program.account.escrow.fetch(escrowPda2);
+      assert.deepEqual(escrow.state, { resolvedBuyer: {} });
 
-    escrow = await program.account.escrow.fetch(escrowPda);
-    assert.equal(escrow.state.resolved !== undefined, true);
+      // Arbitrator gets 1% of buyer collateral
+      const arbAccount = await getAccount(provider.connection, arbitratorToken);
+      assert.equal(Number(arbAccount.amount), 1000); // 1% of 100_000
 
-    // Check fee: 1% of 120_000_000 = 1_200_000
-    const feeAccount = await getAccount(provider.connection, protocolFeeAta);
-    assert.equal(Number(feeAccount.amount), 1_200_000);
-
-    // Winner gets 120_000_000 - 1_200_000 = 118_800_000
-    const buyerBalanceAfter = Number(
-      (await getAccount(provider.connection, buyerAta)).amount
-    );
-    assert.equal(buyerBalanceAfter - buyerBalanceBefore, 118_800_000);
+      // Buyer gets the rest (total pool - arb fee)
+      const buyerAfter = await getAccount(provider.connection, buyerToken);
+      const totalPool = 1_000_000 + 100_000 + 50_000;
+      assert.equal(
+        Number(buyerAfter.amount) - Number(buyerBefore.amount),
+        totalPool - 1000
+      );
+    });
   });
 });
