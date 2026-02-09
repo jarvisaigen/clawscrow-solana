@@ -296,6 +296,7 @@ const App = (() => {
     }
     if (job.state === 'active' && isMySeller) {
       actions.innerHTML += `<button class="btn btn-primary" onclick="App.deliverJob('${pubkey}')">📦 Submit Delivery</button>`;
+      actions.innerHTML += `<button class="btn btn-secondary" onclick="App.showFileUpload('${pubkey}', ${job.escrowId})">📎 Upload File</button>`;
     }
     if (job.state === 'delivered' && (isMyBuyer || isMyArbitrator)) {
       actions.innerHTML += `<button class="btn btn-success" onclick="App.approveJob('${pubkey}')">✅ Approve & Release</button>`;
@@ -308,6 +309,21 @@ const App = (() => {
       actions.innerHTML += `<button class="btn btn-warning" onclick="App.arbitrateJob('${pubkey}', false)">🟢 Rule for Seller</button>`;
     }
     actions.innerHTML += `<button class="btn btn-secondary" onclick="App.closeModal()">Close</button>`;
+
+    // File delivery section
+    const fileSection = document.createElement('div');
+    fileSection.id = 'modalFileSection';
+    fileSection.className = 'file-section';
+    fileSection.innerHTML = '<div class="file-section-loading">Loading files...</div>';
+    
+    // Insert before actions
+    const modalDesc = document.getElementById('modalDescription');
+    const existingFileSection = document.getElementById('modalFileSection');
+    if (existingFileSection) existingFileSection.remove();
+    modalDesc.parentNode.insertBefore(fileSection, actions);
+
+    // Load files for this escrow
+    loadEscrowFiles(job.escrowId, fileSection);
 
     document.getElementById('jobModal').classList.add('active');
   }
@@ -681,6 +697,195 @@ const App = (() => {
     });
   }
 
+  // ─── File Upload/Download ───
+  const API_BASE = window.location.origin;
+
+  async function loadEscrowFiles(escrowId, container) {
+    try {
+      const resp = await fetch(`${API_BASE}/api/files?escrowId=${escrowId}`);
+      const data = await resp.json();
+      
+      if (!data.files || data.files.length === 0) {
+        container.innerHTML = '<div class="file-section-empty">No files uploaded yet.</div>';
+        return;
+      }
+
+      container.innerHTML = `
+        <h4 class="file-section-title">📁 Delivered Files</h4>
+        ${data.files.map(f => `
+          <div class="file-entry">
+            <div class="file-info">
+              <span class="file-name">${escapeHtml(f.filename)}</span>
+              <span class="file-meta">${formatBytes(f.size)} • ${f.encrypted ? '🔒 Encrypted' : '📄 Plain'}</span>
+            </div>
+            <div class="file-actions">
+              ${f.encrypted
+                ? `<button class="btn btn-sm btn-primary" onclick="App.decryptAndDownload('${f.id}')">🔓 Decrypt</button>`
+                : `<a class="btn btn-sm btn-success" href="${API_BASE}/api/files/${f.id}?raw=true" download="${escapeHtml(f.filename)}">⬇ Download</a>`
+              }
+            </div>
+          </div>
+        `).join('')}
+        <div class="file-hash-info">Content hash: <code>${data.files[0].contentHash.slice(0, 16)}...</code></div>
+      `;
+    } catch (err) {
+      container.innerHTML = '<div class="file-section-empty">Could not load files.</div>';
+      console.error('Failed to load files:', err);
+    }
+  }
+
+  function showFileUpload(pubkey, escrowId) {
+    const job = escrows.find(e => e.pubkey === pubkey);
+    if (!job) return;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.id = 'fileUploadModal';
+    modal.innerHTML = `
+      <div class="modal" style="max-width:500px">
+        <button class="modal-close" onclick="document.getElementById('fileUploadModal').remove()">&times;</button>
+        <h2>📎 Upload Delivery File</h2>
+        <p style="color:var(--text-muted);margin-bottom:1rem;">Upload a file for Escrow #${escrowId}. Optionally encrypt with buyer's public key.</p>
+        
+        <div class="form-group">
+          <label>File</label>
+          <input type="file" id="fileUploadInput" class="form-input" style="padding:8px;">
+        </div>
+        
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="fileEncryptCheck"> 🔒 Encrypt with ECIES
+          </label>
+        </div>
+        
+        <div class="form-group" id="pubKeyGroup" style="display:none;">
+          <label>Buyer's secp256k1 Public Key (hex)</label>
+          <input type="text" id="fileEncryptPubKey" class="form-input" placeholder="04abc123...">
+          <div class="form-hint">Compressed or uncompressed secp256k1 public key</div>
+        </div>
+        
+        <button class="btn btn-primary" style="width:100%" onclick="App.doFileUpload(${escrowId})">
+          🚀 Upload
+        </button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+
+    document.getElementById('fileEncryptCheck').addEventListener('change', (e) => {
+      document.getElementById('pubKeyGroup').style.display = e.target.checked ? 'block' : 'none';
+    });
+  }
+
+  async function doFileUpload(escrowId) {
+    const input = document.getElementById('fileUploadInput');
+    if (!input.files || !input.files[0]) {
+      toast('Please select a file', 'error');
+      return;
+    }
+
+    const file = input.files[0];
+    const encrypt = document.getElementById('fileEncryptCheck').checked;
+    const pubKey = document.getElementById('fileEncryptPubKey')?.value?.trim();
+
+    if (encrypt && !pubKey) {
+      toast('Enter recipient public key for encryption', 'error');
+      return;
+    }
+
+    toast('Uploading file...', 'info');
+
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuf)));
+
+      const payload = {
+        content: base64,
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        escrowId,
+        uploadedBy: publicKey || 'unknown',
+      };
+      if (encrypt && pubKey) {
+        payload.encryptForPubKey = pubKey;
+      }
+
+      const resp = await fetch(`${API_BASE}/api/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+
+      if (data.ok) {
+        toast(`File uploaded! Hash: ${data.contentHash.slice(0, 16)}...`, 'success');
+        document.getElementById('fileUploadModal')?.remove();
+        // Refresh the file section in the job modal
+        const fileSection = document.getElementById('modalFileSection');
+        if (fileSection) loadEscrowFiles(escrowId, fileSection);
+      } else {
+        toast(`Upload failed: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      toast(`Upload failed: ${err.message}`, 'error');
+      console.error('File upload error:', err);
+    }
+  }
+
+  async function decryptAndDownload(fileId) {
+    const privateKey = prompt('Enter your secp256k1 private key (hex) to decrypt:');
+    if (!privateKey) return;
+
+    toast('Decrypting...', 'info');
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/ecies/decrypt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, privateKey }),
+      });
+      const data = await resp.json();
+
+      if (data.ok) {
+        // Convert base64 to blob and trigger download
+        const byteChars = atob(data.content);
+        const byteArray = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteArray[i] = byteChars.charCodeAt(i);
+        }
+        const blob = new Blob([byteArray], { type: data.contentType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.filename || 'decrypted-file';
+        a.click();
+        URL.revokeObjectURL(url);
+        toast('File decrypted and downloaded!', 'success');
+      } else {
+        toast(`Decryption failed: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      toast(`Decryption failed: ${err.message}`, 'error');
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   // ─── Init ───
   function init() {
     loadEscrows().then(() => renderArbitrations());
@@ -710,6 +915,7 @@ const App = (() => {
   return {
     connectWallet, postJob, acceptJob, deliverJob, approveJob, disputeJob, arbitrateJob,
     filterEscrows, openJob, closeModal, navigateTo, copyCode,
+    showFileUpload, doFileUpload, decryptAndDownload,
   };
 })();
 

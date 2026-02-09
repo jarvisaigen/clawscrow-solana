@@ -138,8 +138,11 @@ const server = createServer(async (req, res) => {
           "PUT /api/jobs/:id/accept": "Mark job as accepted",
           "PUT /api/jobs/:id/deliver": "Upload delivery + mark delivered",
           "PUT /api/jobs/:id/dispute": "Trigger AI arbitration",
-          "GET /api/files/:fileId": "Download delivered file",
-          "POST /api/files/upload": "Upload encrypted file",
+          "POST /api/files": "Upload file (optional ECIES encryption with encryptForPubKey)",
+          "GET /api/files": "List files (?escrowId= to filter)",
+          "GET /api/files/:fileId": "Get file metadata (add ?raw=true for binary download)",
+          "GET /api/ecies/keypair": "Generate demo secp256k1 keypair",
+          "POST /api/ecies/decrypt": "Server-side decrypt (fileId + privateKey)",
         },
         arbitration: {
           models: ["Claude Opus 4.6", "GPT 5.2", "Gemini 3 Pro"],
@@ -253,52 +256,109 @@ const server = createServer(async (req, res) => {
       return json(res, { ok: true, job, arbitration: null, message: "API keys not configured — manual arbitration required" });
     }
 
-    // === FILES ===
-    if (pathname === "/api/files/upload" && req.method === "POST") {
+    // === FILES (ECIES-enabled) ===
+    
+    // Upload file with optional ECIES encryption
+    if (pathname === "/api/files" && req.method === "POST") {
       const body = await parseBody(req);
-      const { escrowId, filename, content, contentType, encrypted, uploadedBy } = body;
+      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey } = body;
 
-      const hash = crypto.createHash("sha256").update(content || "").digest("hex");
-      const fileId = crypto.randomUUID();
-
-      // Save file
-      const filePath = path.join(UPLOAD_DIR, fileId);
-      fs.writeFileSync(filePath, Buffer.from(content || "", "base64"));
-
-      const entry: FileEntry = {
-        id: fileId,
-        escrowId,
-        filename: filename || "delivery",
-        contentType: contentType || "application/octet-stream",
-        encrypted: encrypted || false,
-        hash,
-        uploadedAt: Date.now(),
-        uploadedBy: uploadedBy || "unknown",
-      };
-      files.set(fileId, entry);
-
-      return json(res, { ok: true, fileId, hash }, 201);
-    }
-
-    const fileMatch = pathname.match(/^\/api\/files\/(.+)$/);
-    if (fileMatch && req.method === "GET") {
-      const fileId = fileMatch[1];
-      const entry = files.get(fileId);
-      if (!entry) return json(res, { error: "File not found" }, 404);
-
-      const raw = url.searchParams.get("raw") === "true";
-      if (raw) {
-        const filePath = path.join(UPLOAD_DIR, fileId);
-        const data = fs.readFileSync(filePath);
-        res.writeHead(200, {
-          "Content-Type": entry.contentType,
-          "Content-Disposition": `attachment; filename="${entry.filename}"`,
-          "Access-Control-Allow-Origin": "*",
-        });
-        return res.end(data);
+      if (!content) {
+        return json(res, { error: "Missing required field: content (base64)" }, 400);
       }
 
-      return json(res, { file: entry });
+      try {
+        const result = uploadFile({
+          content,
+          filename,
+          contentType,
+          escrowId,
+          uploadedBy,
+          encryptForPubKey,
+        });
+        return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta }, 201);
+      } catch (err: any) {
+        return json(res, { error: `Upload failed: ${err.message}` }, 500);
+      }
+    }
+
+    // Also support legacy upload endpoint
+    if (pathname === "/api/files/upload" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey } = body;
+
+      if (!content) {
+        return json(res, { error: "Missing required field: content (base64)" }, 400);
+      }
+
+      try {
+        const result = uploadFile({ content, filename, contentType, escrowId, uploadedBy, encryptForPubKey });
+        return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, hash: result.contentHash }, 201);
+      } catch (err: any) {
+        return json(res, { error: `Upload failed: ${err.message}` }, 500);
+      }
+    }
+
+    // List files for an escrow
+    if (pathname === "/api/files" && req.method === "GET") {
+      const escrowId = url.searchParams.get("escrowId");
+      const fileList = listFiles(escrowId ? parseInt(escrowId) : undefined);
+      return json(res, { files: fileList, count: fileList.length });
+    }
+
+    // Generate keypair (for demo/testing — DO NOT use in production)
+    if (pathname === "/api/ecies/keypair" && req.method === "GET") {
+      const kp = generateKeyPair();
+      return json(res, kp);
+    }
+
+    // Server-side decrypt (for demo — in production, decrypt client-side)
+    if (pathname === "/api/ecies/decrypt" && req.method === "POST") {
+      const body = await parseBody(req);
+      const { fileId, privateKey } = body;
+      if (!fileId || !privateKey) {
+        return json(res, { error: "Missing fileId or privateKey" }, 400);
+      }
+      const file = downloadFile(fileId);
+      if (!file) return json(res, { error: "File not found" }, 404);
+      if (!file.meta.encrypted) {
+        return json(res, { error: "File is not encrypted" }, 400);
+      }
+      try {
+        const decrypted = decryptWithPrivateKey(privateKey, file.data);
+        return json(res, {
+          ok: true,
+          content: decrypted.toString("base64"),
+          contentType: file.meta.contentType,
+          filename: file.meta.filename,
+        });
+      } catch (err: any) {
+        return json(res, { error: `Decryption failed: ${err.message}` }, 400);
+      }
+    }
+
+    // Download file by ID
+    const fileMatch = pathname.match(/^\/api\/files\/([a-f0-9-]+)$/);
+    if (fileMatch && req.method === "GET") {
+      const fileId = fileMatch[1];
+      const raw = url.searchParams.get("raw") === "true";
+
+      if (raw) {
+        const file = downloadFile(fileId);
+        if (!file) return json(res, { error: "File not found" }, 404);
+        res.writeHead(200, {
+          "Content-Type": file.meta.encrypted ? "application/octet-stream" : file.meta.contentType,
+          "Content-Disposition": `attachment; filename="${file.meta.filename}"`,
+          "X-Encrypted": file.meta.encrypted ? "true" : "false",
+          "X-Content-Hash": file.meta.contentHash,
+          "Access-Control-Allow-Origin": "*",
+        });
+        return res.end(file.data);
+      }
+
+      const meta = getFileMeta(fileId);
+      if (!meta) return json(res, { error: "File not found" }, 404);
+      return json(res, { file: meta });
     }
 
     // === HEALTH ===

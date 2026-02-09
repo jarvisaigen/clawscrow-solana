@@ -552,3 +552,21 @@ section { padding: 100px 2rem; max-width: 1200px; margin: 0 auto; }
 
 /* ─── Nav active state ─── */
 .nav-section-link.active { color: var(--accent-light) !important; }
+
+/* ─── File Section in Modal ─── */
+.file-section { margin: 1rem 0; }
+.file-section-title { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+.file-section-empty { color: var(--text-muted); font-size: 0.85rem; font-style: italic; padding: 0.5rem 0; }
+.file-section-loading { color: var(--text-muted); font-size: 0.85rem; }
+.file-entry {
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.5rem;
+}
+.file-info { display: flex; flex-direction: column; gap: 2px; }
+.file-name { font-weight: 600; font-size: 0.9rem; }
+.file-meta { font-size: 0.75rem; color: var(--text-muted); }
+.file-actions { display: flex; gap: 0.5rem; }
+.file-hash-info { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+.file-hash-info code { font-family: var(--font-mono); background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; }
+.btn-sm { padding: 4px 12px !important; font-size: 0.8rem !important; }

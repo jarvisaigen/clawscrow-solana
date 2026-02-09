@@ -59,7 +59,7 @@ export function uploadFile(params: {
   }
 
   const encryptedHash = crypto.createHash("sha256").update(stored).digest("hex");
-  const fileId = crypto.randomUUID();
+  const fileId = crypto.randomBytes(16).toString("hex").replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
 
   // Write file
   fs.writeFileSync(path.join(DATA_DIR, fileId), stored);

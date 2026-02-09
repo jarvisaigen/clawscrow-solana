@@ -7,3 +7,5 @@ test-ledger
 .yarn
 *.secret
 *.env
+data/
+uploads/
