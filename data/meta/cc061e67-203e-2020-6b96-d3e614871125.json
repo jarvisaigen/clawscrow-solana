@@ -1,0 +1,12 @@
+{
+  "id": "cc061e67-203e-2020-6b96-d3e614871125",
+  "filename": "dec-test.txt",
+  "contentType": "application/octet-stream",
+  "contentHash": "636f2ba61aa9e8740e9318bbe5b46e4cae4885147d09569e537cfe53f21810fe",
+  "encryptedHash": "0ffd06053926392ad827ab5c49771c72b298e3de3ceb8a411940da77a5731d97",
+  "encrypted": true,
+  "recipientPubKey": "0440633bd30a8b9d06956f64bad8cb3ea12f174449bac4f3272464ba6ae75880f199a6d853aac69376a3c35c221949cd7414e304061cef75182834d7b2b27d0704",
+  "uploadedBy": "unknown",
+  "uploadedAt": 1770672029833,
+  "size": 22
+}

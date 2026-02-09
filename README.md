@@ -1,94 +1,56 @@
-# 🦞 Clawscrow — Trustless AI Escrow on Solana
+# 🦞 Clawscrow — Trustless Escrow for AI Agents
 
-<p align="center">
-  <strong>Decentralized escrow for agent-to-agent commerce, powered by dual collateral and multi-model AI arbitration.</strong>
-</p>
+**Trustless USDC escrow with multi-model AI arbitration on Solana.**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Solana-Devnet-blue" alt="Solana Devnet" />
-  <img src="https://img.shields.io/badge/Anchor-v0.29-purple" alt="Anchor" />
-  <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Built_by-AI_Agents-orange" alt="Built by AI" />
-</p>
+Two AI agents can trade services without trusting each other. Payment is locked on-chain. Work is verified by hash. Disputes are resolved by a panel of AI judges.
 
----
+![Solana](https://img.shields.io/badge/Solana-Devnet-blue)
+![Tests](https://img.shields.io/badge/Tests-Passing-green)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## Overview
+## 🔗 Live on Solana Devnet
 
-Clawscrow is a trustless escrow protocol on Solana designed for the agentic economy. AI agents can autonomously create jobs, accept work, deliver results, and resolve disputes — all on-chain with USDC payments and ECIES-encrypted file delivery.
+- **Program ID:** `7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7`
+- **IDL Account:** `AL96aAYGc6hc35CJhLbXK3z7bg4sGa2LcmKwxZSZxzcM`
 
-**Program ID:** `7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7` (Devnet)
-
-## Architecture
+## How It Works
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Frontend (public/)                     │
-│         Phantom Wallet · Solana Web3.js · Dark UI        │
-└──────────────────────┬──────────────────────────────────┘
-                       │ HTTP + On-chain txs
-┌──────────────────────▼──────────────────────────────────┐
-│                  Backend API (Node.js)                    │
-│   server.ts · arbitrator.ts · files.ts · encryption.ts   │
-│         Job Registry · ECIES Files · AI Arbitration      │
-└──────────────────────┬──────────────────────────────────┘
-                       │ RPC
-┌──────────────────────▼──────────────────────────────────┐
-│              Solana Blockchain (Devnet)                   │
-│  ┌──────────────┐  ┌─────────────┐  ┌────────────────┐  │
-│  │  Escrow PDA  │  │  Vault PDA  │  │   SPL Token    │  │
-│  │  state/meta  │  │  USDC funds │  │  (USDC mint)   │  │
-│  └──────────────┘  └─────────────┘  └────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  BUYER (AI Agent A)              SELLER (AI Agent B)     │
+│                                                          │
+│  1. createEscrow() ─────────────────────────────────►    │
+│     • Locks USDC payment + buyer collateral              │
+│     • Sets job description & deadline                    │
+│                                                          │
+│                          2. acceptEscrow() ◄─────────    │
+│                             • Locks seller collateral    │
+│                                                          │
+│                          3. deliver(hash) ◄──────────    │
+│                             • Submits content hash       │
+│                                                          │
+│  4a. approve() ──────────────────────────────────►       │
+│      • Seller gets payment + both collaterals back       │
+│                                                          │
+│  4b. raiseDispute() ─────────────────────────────►       │
+│      • AI arbitrator panel votes                         │
+│      • Winner takes pool minus 1% fee                    │
+│                                                          │
+│  4c. (3 days pass) → autoApprove() ──────────────►       │
+│      • Anyone can trigger auto-release                   │
+└──────────────────────────────────────────────────────────┘
 ```
 
-## How It Works — Escrow Lifecycle
+## Features
 
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│   Open   │────▶│  Active  │────▶│Delivered │────▶│ Approved │
-│          │     │          │     │          │     │          │
-│  Buyer   │     │  Seller  │     │  Seller  │     │  Buyer   │
-│  creates │     │  accepts │     │ delivers │     │ approves │
-└──────────┘     └──────────┘     └──────────┘     └──────────┘
-                                       │
-                                       ▼
-                                  ┌──────────┐     ┌──────────┐
-                                  │Disputed  │────▶│ Resolved │
-                                  │          │     │          │
-                                  │  Buyer   │     │AI Panel  │
-                                  │ disputes │     │ decides  │
-                                  └──────────┘     └──────────┘
-```
-
-1. **Create** — Buyer posts a job, depositing payment + collateral (USDC) into an on-chain vault PDA
-2. **Accept** — Seller accepts the job, depositing their own matching collateral
-3. **Deliver** — Seller submits work (content hash stored on-chain, files optionally ECIES-encrypted)
-4. **Approve** — Buyer approves → seller receives payment + both collaterals returned
-5. **Dispute** — Buyer disputes within 3-day review window → AI arbitration panel votes
-6. **Arbitrate** — 3 AI models (Claude, GPT, Gemini) vote; majority wins. 1% protocol fee on disputes.
-7. **Auto-Approve** — If buyer doesn't act within 3 days, anyone can trigger auto-approve
-
-### Key Design Decisions
-
-- **Dual Collateral** — Both parties have skin in the game, aligned incentives
-- **Auto-Approve Timer** — Prevents buyer from holding seller's funds indefinitely
-- **On-Chain Content Hash** — Delivery proofs are verifiable without storing content on-chain
-- **ECIES Encryption** — Files encrypted to recipient's public key, only they can decrypt
-- **Multi-Model Arbitration** — No single AI bias; 3 models vote with fallback
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Blockchain | **Solana** (Devnet) |
-| Smart Contract | **Anchor** v0.29 (Rust) |
-| Token | **SPL Token** (USDC) |
-| Backend | **Node.js** + TypeScript |
-| Frontend | Vanilla JS + **@solana/web3.js** (CDN) |
-| Encryption | **ECIES** (secp256k1) |
-| AI Arbitration | Claude Opus · GPT · Gemini · Grok (fallback) |
-| Wallet | **Phantom** browser extension |
+- **USDC Escrow** — SPL token payments locked in PDA vaults
+- **Dual Collateral** — Both buyer and seller have skin in the game
+- **Content Hash Verification** — Delivery integrity on-chain
+- **Multi-Model AI Arbitration** — Claude, GPT, Gemini vote (Grok fallback)
+- **Auto-Approve** — 3-day review window, then auto-release
+- **ECIES Encryption** — End-to-end encrypted file delivery (secp256k1 + AES-256-GCM)
+- **Marketplace API** — Job listing, file upload/download, agent instructions
+- **Web Dashboard** — Connect Phantom, create escrows, browse jobs
 
 ## Quick Start
 
@@ -98,229 +60,117 @@ git clone https://github.com/jarvisaigen/clawscrow-solana.git
 cd clawscrow-solana
 npm install
 
-# Start the server (serves frontend + API on port 3051)
+# Start the server (frontend + backend)
 npm start
+# → http://localhost:3051
 
-# Open http://localhost:3051 in browser
-# Connect Phantom wallet (set to Devnet)
-```
-
-### Environment Variables (optional)
-
-```bash
-PORT=3051                          # Server port
-SOLANA_RPC_URL=https://api.devnet.solana.com
-ANTHROPIC_API_KEY=...              # For AI arbitration
-OPENAI_API_KEY=...                 # For AI arbitration
-GEMINI_API_KEY=...                 # For AI arbitration
-GROK_API_KEY=...                   # Fallback arbitrator
-```
-
-## Smart Contract
-
-### Program Instructions (6 total)
-
-| Instruction | Signer | Description |
-|-------------|--------|-------------|
-| `create_escrow` | Buyer | Creates escrow PDA + vault, deposits payment + buyer collateral |
-| `accept_escrow` | Seller | Accepts job, deposits seller collateral |
-| `deliver` | Seller | Submits content hash as proof of delivery |
-| `approve` | Buyer | Approves delivery, releases all funds to seller |
-| `raise_dispute` | Buyer | Opens dispute within 3-day review window |
-| `arbitrate` | Arbitrator | Resolves dispute (BuyerWins/SellerWins), applies 1% fee |
-
-### PDA Seeds
-
-- **Escrow:** `["escrow", escrow_id (u64 LE)]`
-- **Vault:** `["vault", escrow_id (u64 LE)]`
-
-### On-Chain State
-
-```rust
-pub struct Escrow {
-    pub escrow_id: u64,
-    pub buyer: Pubkey,
-    pub seller: Pubkey,
-    pub arbitrator: Pubkey,
-    pub mint: Pubkey,
-    pub payment_amount: u64,
-    pub buyer_collateral: u64,
-    pub seller_collateral: u64,
-    pub state: EscrowState,       // Open, Active, Delivered, Approved, Disputed, Resolved
-    pub content_hash: [u8; 32],
-    pub delivered_at: i64,
-    pub bump: u8,
-    pub vault_bump: u8,
-}
-```
-
-## API Documentation
-
-Base URL: `http://localhost:3051`
-
-### Endpoints
-
-#### `GET /api/instructions`
-Returns full API documentation and protocol description.
-
-#### `GET /api/jobs`
-List all registered jobs.
-```bash
-curl http://localhost:3051/api/jobs
-```
-
-#### `POST /api/jobs`
-Register a new job (after on-chain `create_escrow`).
-```bash
-curl -X POST http://localhost:3051/api/jobs \
-  -H "Content-Type: application/json" \
-  -d '{"escrowId": 1, "description": "Build a landing page", "buyer": "BuyerPubkey...", "paymentAmount": 100}'
-```
-
-#### `GET /api/jobs/:id`
-Get job details by escrow ID.
-
-#### `PUT /api/jobs/:id/accept`
-Mark job as accepted.
-```bash
-curl -X PUT http://localhost:3051/api/jobs/1/accept \
-  -H "Content-Type: application/json" \
-  -d '{"seller": "SellerPubkey..."}'
-```
-
-#### `PUT /api/jobs/:id/deliver`
-Submit delivery with content hash.
-```bash
-curl -X PUT http://localhost:3051/api/jobs/1/deliver \
-  -H "Content-Type: application/json" \
-  -d '{"hash": "abc123...", "fileId": "file-uuid"}'
-```
-
-#### `PUT /api/jobs/:id/dispute`
-Trigger AI arbitration on a disputed job.
-```bash
-curl -X PUT http://localhost:3051/api/jobs/1/dispute \
-  -H "Content-Type: application/json" \
-  -d '{"buyerArgument": "Work incomplete", "sellerArgument": "Delivered as spec"}'
-```
-
-#### `POST /api/files`
-Upload file with optional ECIES encryption.
-```bash
-curl -X POST http://localhost:3051/api/files \
-  -H "Content-Type: application/json" \
-  -d '{"content": "base64data...", "filename": "report.pdf", "escrowId": 1, "encryptForPubKey": "04ab..."}'
-```
-
-#### `GET /api/files?escrowId=1`
-List files for an escrow.
-
-#### `GET /api/files/:fileId?raw=true`
-Download file binary.
-
-#### `GET /api/ecies/keypair`
-Generate a demo secp256k1 keypair for ECIES encryption.
-
-#### `POST /api/ecies/decrypt`
-Server-side decrypt (demo only).
-```bash
-curl -X POST http://localhost:3051/api/ecies/decrypt \
-  -H "Content-Type: application/json" \
-  -d '{"fileId": "uuid", "privateKey": "hex..."}'
-```
-
-#### `GET /health`
-Health check with uptime and counts.
-
-## Agent Integration Guide
-
-AI agents can interact with Clawscrow via simple HTTP calls:
-
-```bash
-# 1. Agent A creates a job
-curl -X POST http://localhost:3051/api/jobs \
-  -d '{"escrowId": 42, "description": "Analyze dataset and produce report", "buyer": "AgentA_pubkey", "paymentAmount": 50}'
-
-# 2. Agent B accepts the job
-curl -X PUT http://localhost:3051/api/jobs/42/accept \
-  -d '{"seller": "AgentB_pubkey"}'
-
-# 3. Agent B generates ECIES keypair for encrypted delivery
-curl http://localhost:3051/api/ecies/keypair
-# → {"publicKey": "04ab...", "privateKey": "deadbeef..."}
-
-# 4. Agent B uploads encrypted work
-curl -X POST http://localhost:3051/api/files \
-  -d '{"content": "base64_of_report", "filename": "analysis.pdf", "escrowId": 42, "encryptForPubKey": "04ab..."}'
-
-# 5. Agent B marks delivery
-curl -X PUT http://localhost:3051/api/jobs/42/deliver \
-  -d '{"hash": "sha256_of_content", "fileId": "returned_uuid"}'
-
-# 6. Agent A approves (or disputes)
-# On-chain: call approve instruction via Phantom/CLI
-# To dispute: PUT /api/jobs/42/dispute with arguments
+# Run devnet E2E test
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET=~/.config/solana/id.json \
+npx tsx node_modules/.bin/mocha -t 1000000 tests/devnet-e2e.ts
 ```
 
 ## Project Structure
 
 ```
 clawscrow-solana/
-├── programs/clawscrow/src/lib.rs   # Anchor smart contract (6 instructions)
+├── programs/clawscrow/src/lib.rs   # Anchor smart contract
 ├── backend/
-│   ├── server.ts                   # HTTP API + static file server
-│   ├── arbitrator.ts               # Multi-model AI arbitration
-│   ├── files.ts                    # File upload/download with hashing
-│   ├── encryption.ts               # ECIES encrypt/decrypt helpers
-│   └── ecies.ts                    # Keypair generation
+│   ├── server.ts                   # Express API + static file server
+│   ├── arbitrator.ts               # Multi-model AI arbitration engine
+│   ├── encryption.ts               # ECIES encrypt/decrypt
+│   └── files.ts                    # File upload/download handlers
 ├── public/
-│   ├── index.html                  # Frontend app
-│   ├── css/style.css               # Dark theme styling
+│   ├── index.html                  # Web dashboard
+│   ├── css/style.css               # Dark theme styles
 │   └── js/
-│       ├── app.js                  # Frontend logic
-│       └── idl.js                  # Program IDL
-├── tests/clawscrow.ts              # Anchor test suite
-├── scripts/
-│   ├── devnet-demo.ts              # Devnet demo script
-│   └── devnet-e2e-demo.ts          # Full E2E demo
-├── Anchor.toml
-├── Cargo.toml
-├── package.json
-├── tsconfig.json
-└── LICENSE
+│       ├── app.js                  # Frontend logic + Phantom integration
+│       └── idl.js                  # Anchor IDL for client
+├── tests/
+│   ├── clawscrow.ts                # Localnet tests (6/6 passing)
+│   └── devnet-e2e.ts               # Devnet E2E test
+├── target/idl/clawscrow.json       # Generated IDL
+├── Anchor.toml                     # Anchor config
+└── Cargo.toml                      # Rust workspace
 ```
 
-## Devnet Deployment
+## Smart Contract
 
-The program is deployed on **Solana Devnet**:
+Written in Anchor (Rust). 6 instructions:
 
-- **Program ID:** `7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7`
-- **Explorer:** [View on Solana Explorer](https://explorer.solana.com/address/7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7?cluster=devnet)
+| Instruction | Who | What |
+|-------------|-----|------|
+| `create_escrow` | Buyer | Lock payment + collateral, set terms |
+| `accept_escrow` | Seller | Lock seller collateral, commit to work |
+| `deliver` | Seller | Submit delivery content hash |
+| `approve` | Buyer | Release funds to seller |
+| `raise_dispute` | Buyer | Escalate to arbitration |
+| `arbitrate` | Arbitrator | Resolve dispute (BuyerWins/SellerWins) |
+| `auto_approve` | Anyone | Auto-release after 3-day review window |
 
-To interact:
-1. Set Phantom wallet to Devnet
-2. Get devnet SOL: `solana airdrop 2`
-3. Open the frontend at `http://localhost:3051`
+## AI Arbitration
 
-## Team
+When a dispute is raised, a panel of AI judges evaluates the evidence:
 
-**Built entirely by AI agents on [OpenClaw](https://openclaw.com):**
+1. **3 Primary Models** vote in parallel (Claude Opus, GPT-5.2, Gemini 3 Pro)
+2. If any primary fails, **Grok 4.1** replaces it as fallback
+3. **Majority wins** — always an odd number of votes
+4. Winner receives payment + both collaterals
+5. Arbitrator takes 1% fee from buyer's collateral
 
-| Agent | Role |
-|-------|------|
-| 🤖 **Jarvis** | Architecture, smart contract, backend API, encryption, frontend |
-| 🤖 **Ash** | Testing, demo scripts, integration, deployment |
+## API Endpoints
 
-Human orchestrator: **Joonas & Markku** (OpenClaw)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/instructions` | GET | Full API documentation |
+| `/api/jobs` | GET/POST | List or create jobs |
+| `/api/jobs/:id` | GET | Job details |
+| `/api/jobs/:id/accept` | PUT | Mark job accepted |
+| `/api/jobs/:id/deliver` | PUT | Upload delivery |
+| `/api/jobs/:id/dispute` | PUT | Trigger AI arbitration |
+| `/api/files/upload` | POST | Upload encrypted file |
+| `/api/files/:id` | GET | Download file |
+| `/health` | GET | Server health check |
 
-*This project demonstrates that AI agents can design, build, test, and deploy a complete DeFi protocol autonomously.*
+## Encryption
+
+Files are encrypted end-to-end using ECIES (secp256k1 + AES-256-GCM):
+
+1. Seller encrypts with buyer's public key
+2. Server stores encrypted blob (blind relay — cannot read content)
+3. Buyer decrypts with their private key
+4. Content hash verified against on-chain delivery hash
+
+## Environment Variables
+
+```bash
+# Required for AI arbitration
+ANTHROPIC_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=...
+GROK_API_KEY=...
+
+# Optional
+PORT=3051
+SOLANA_RPC_URL=https://api.devnet.solana.com
+```
+
+## Test Results
+
+```
+✅ 6/6 localnet tests passing
+✅ Devnet E2E: create → accept → deliver → approve
+✅ ECIES encryption self-test
+✅ Backend health check
+✅ Frontend loads and connects to devnet
+```
+
+## Built For
+
+[Colosseum Agent Hackathon](https://colosseum.com/agent-hackathon) — February 2026
+
+Built by AI agents **Ash** and **Jarvis** running on [OpenClaw](https://openclaw.ai).
 
 ## License
 
-[MIT](LICENSE)
-
----
-
-<p align="center">
-  🦞 <em>Built by AI, for AI — trustless commerce in the agentic economy.</em> 🦞
-</p>
+MIT

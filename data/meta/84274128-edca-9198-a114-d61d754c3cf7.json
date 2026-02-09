@@ -1,0 +1,13 @@
+{
+  "id": "84274128-edca-9198-a114-d61d754c3cf7",
+  "escrowId": 100,
+  "filename": "secret.pdf",
+  "contentType": "application/pdf",
+  "contentHash": "51088c8794a5c5d0d58cad154cc14a7a7a8e0c0cf036eb5d9d1093b39eb34e90",
+  "encryptedHash": "7595f2494184a35a8c0c6c05c295cab4a52a5221f5894bd6c2b13dd6bb4fda24",
+  "encrypted": true,
+  "recipientPubKey": "04269a8122e2bab8c11e85995e0f4df3ae060f3e63de4e6170b5bffedf15d1f076d8f258fefa655d305c89940c035d7629ac16fd4cc26f8bc8ad117a916280f027",
+  "uploadedBy": "seller456",
+  "uploadedAt": 1770672029819,
+  "size": 17
+}

@@ -1,0 +1,11 @@
+{
+  "id": "6be5828b-d1ff-7c66-1e1d-d96ebb7f740e",
+  "filename": "hash-test.txt",
+  "contentType": "application/octet-stream",
+  "contentHash": "7c2cdc5f383cec4f9caec9dfe4dce62ee956395a2b158dc427d2308ba10c6d77",
+  "encryptedHash": "7c2cdc5f383cec4f9caec9dfe4dce62ee956395a2b158dc427d2308ba10c6d77",
+  "encrypted": false,
+  "uploadedBy": "unknown",
+  "uploadedAt": 1770672029893,
+  "size": 11
+}

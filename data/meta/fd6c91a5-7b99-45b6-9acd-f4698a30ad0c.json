@@ -1,0 +1,11 @@
+{
+  "id": "fd6c91a5-7b99-45b6-9acd-f4698a30ad0c",
+  "filename": "big.bin",
+  "contentType": "application/octet-stream",
+  "contentHash": "16fd6b7748776aa5918bfc1aaee7e0004b914864aae3ad0277eabfe111e077f3",
+  "encryptedHash": "16fd6b7748776aa5918bfc1aaee7e0004b914864aae3ad0277eabfe111e077f3",
+  "encrypted": false,
+  "uploadedBy": "test",
+  "uploadedAt": 1770672029876,
+  "size": 5242880
+}

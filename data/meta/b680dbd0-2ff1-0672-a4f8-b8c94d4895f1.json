@@ -1,0 +1,12 @@
+{
+  "id": "b680dbd0-2ff1-0672-a4f8-b8c94d4895f1",
+  "filename": "roundtrip.txt",
+  "contentType": "text/plain",
+  "contentHash": "8490c3e3a934d049df9503ad8c584283dfd659a7ca7132acb82b35e3890223cc",
+  "encryptedHash": "9e810388485ddb8d5d24cfecd8ab37108d77a5fd244349f111cb5fc4a478356a",
+  "encrypted": true,
+  "recipientPubKey": "04c3e331caf2d2ae845bcc417b7897c58cf969491f063f86521f1439b79fbd456d77df9b2e0c484593bf29387ed6b472a93008d7c5694efd0ef448268668de0cc2",
+  "uploadedBy": "seller",
+  "uploadedAt": 1770672029885,
+  "size": 55
+}
