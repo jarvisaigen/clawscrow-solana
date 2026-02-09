@@ -9,3 +9,5 @@ test-ledger
 *.env
 data/
 uploads/
+deploy-keypair.json
+*.keypair.json
