@@ -1,9 +1,10 @@
 {
   "name": "clawscrow-solana",
   "version": "0.1.0",
-  "description": "Clawscrow – Trustless escrow protocol on Solana",
+  "description": "Clawscrow \u2013 Trustless escrow protocol on Solana",
   "scripts": {
-    "test": "anchor test"
+    "test": "anchor test",
+    "start": "npx tsx backend/server.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",

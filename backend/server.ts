@@ -98,6 +98,37 @@ async function syncEscrowFromChain(connection: Connection, escrowId: number): Pr
   }
 }
 
+// Serve static files from public/
+function serveStatic(req: IncomingMessage, res: ServerResponse): boolean {
+  const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+  let filePath = path.join(__dirname, "../public", url.pathname === "/" ? "/index.html" : url.pathname);
+  
+  if (!fs.existsSync(filePath)) return false;
+  
+  const stat = fs.statSync(filePath);
+  if (stat.isDirectory()) {
+    filePath = path.join(filePath, "index.html");
+    if (!fs.existsSync(filePath)) return false;
+  }
+  
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    ".html": "text/html",
+    ".css": "text/css",
+    ".js": "application/javascript",
+    ".json": "application/json",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+  };
+  
+  const contentType = mimeTypes[ext] || "application/octet-stream";
+  const data = fs.readFileSync(filePath);
+  res.writeHead(200, { "Content-Type": contentType, "Access-Control-Allow-Origin": "*" });
+  res.end(data);
+  return true;
+}
+
 const server = createServer(async (req, res) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -365,6 +396,9 @@ const server = createServer(async (req, res) => {
     if (pathname === "/health") {
       return json(res, { status: "ok", uptime: process.uptime(), jobs: jobs.size, files: files.size });
     }
+
+    // Try static files
+    if (serveStatic(req, res)) return;
 
     // 404
     json(res, { error: "Not found" }, 404);
