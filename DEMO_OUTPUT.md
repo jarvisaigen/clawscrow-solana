@@ -1,56 +1,41 @@
-# Clawscrow E2E Demo - Agent-to-Agent Escrow on Solana
-**Date:** 2026-02-09T20:58:18.336Z
-**Program:** `7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7`
-**RPC:** http://127.0.0.1:8899
+# Clawscrow Devnet E2E Demo
 
-## Wallets
-- **Buyer (Agent A):** `DLU8s3xj58wa4BFAqG6JyFAtGNjBo375NXCAjSKVMNSH`
-- **Seller (Agent B):** `3sFJWcyiaJxCixvd24jj73W4KW4eBiQ6U6RoNEHFTtUU`
-- **Arbitrator:** `85XybwPT63p8X31L6Y8F7anJG7aYjAtAcXNzDBDV3iyn`
+## Status: ⏳ Blocked by Devnet Airdrop Rate Limits
 
-## Funding
-- Seller funded: 2 SOL
-- Arbitrator funded: 1 SOL
+**Date:** 2026-02-09  
+**Program ID:** `7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7`  
+**RPC:** `https://api.devnet.solana.com`
 
-## Token Setup
-- **Test Token Mint:** `D9cRj4XTWXaq66Kxks99EfRu8MszCTNw9TeaQPZSBYeP`
-- Buyer ATA: `UUEsMEiTF48ej3XBqccjmEMfKgULm4o9HwEgSNiRhX3` — minted 150 tokens
-- Seller ATA: `GMCKWKj9K6NxVNaAUqCT8KnmWCtz14JWZBkbrDsknZ12` — minted 25 tokens
+## What's Ready
 
-## Escrow PDAs
-- **Escrow ID:** 1770670701672
-- **Escrow PDA:** `kueP4DVuoR2ruwvz2EyUsAsPBmQZgvqMUhccYP3Lz8Z`
-- **Vault PDA:** `EPG4McP1AXWqVHUmvrbyzVpnq1HiCXNKazdPTzSRMtDY`
+The E2E demo script (`scripts/devnet-e2e-demo.ts`) is complete and will:
 
-## Step 1: Create Escrow (Buyer)
-✅ TX: `32ZinuMUhd8EHu6A9US4sZymGe2cWJ6v6BtB7MgNJVcJCrpLdoiZuhkaePJUR1DQyuGwXm7eBFH3hm26Q2BTSGQm`
-   https://explorer.solana.com/tx/32ZinuMUhd8EHu6A9US4sZymGe2cWJ6v6BtB7MgNJVcJCrpLdoiZuhkaePJUR1DQyuGwXm7eBFH3hm26Q2BTSGQm?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
+1. **createEscrow** — Buyer deposits 100 test USDC + sets 50 USDC collateral
+2. **acceptEscrow** — Seller accepts and posts collateral
+3. **deliver** — Seller marks work as delivered
+4. **approve** — Buyer approves, funds released to seller
 
-## Step 2: Accept Escrow (Seller)
-✅ TX: `4nmPqYmLMJaW7SSZpPMf55ySthnLzW94damkRjR2yt9oBCNVxDAG9CLWRbMrmRv1BHkFw5KHhkk5rTLCR8UED3Bm`
-   https://explorer.solana.com/tx/4nmPqYmLMJaW7SSZpPMf55ySthnLzW94damkRjR2yt9oBCNVxDAG9CLWRbMrmRv1BHkFw5KHhkk5rTLCR8UED3Bm?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
+## How to Run
 
-## Step 3: Deliver Work (Seller)
-✅ TX: `4YKFXhJxvu3daErBZ9Dt1G1rjihcaC2PG8qUsx2jDjtBfeaApx1i7TUz5YJpmsLiGHQC9fBGeZfYobE8as1wq4SJ`
-   https://explorer.solana.com/tx/4YKFXhJxvu3daErBZ9Dt1G1rjihcaC2PG8qUsx2jDjtBfeaApx1i7TUz5YJpmsLiGHQC9fBGeZfYobE8as1wq4SJ?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
+```bash
+# 1. Ensure deploy-keypair.json exists at project root with a funded devnet wallet
+# 2. Fund it with at least 2 SOL via https://faucet.solana.com
 
-## Step 4: Approve & Release Funds (Buyer)
-✅ TX: `58ZTAfyLRHxSdrQCsjAZfqx1KHnb8qNGRCfWABamQaapD8AAQLvi9gxLLeWisWMeuitkmPRu4LnBdBTQguzLzodx`
-   https://explorer.solana.com/tx/58ZTAfyLRHxSdrQCsjAZfqx1KHnb8qNGRCfWABamQaapD8AAQLvi9gxLLeWisWMeuitkmPRu4LnBdBTQguzLzodx?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
+npx tsx scripts/devnet-e2e-demo.ts
+```
 
-## Final Escrow State
-- **Escrow ID:** 1770670701672
-- **Account size:** 699 bytes
-- **Raw state check:** Account exists and funded
+## Blocker
 
-## Transaction Summary
-- **create_escrow:** `32ZinuMUhd8EHu6A9US4sZymGe2cWJ6v6BtB7MgNJVcJCrpLdoiZuhkaePJUR1DQyuGwXm7eBFH3hm26Q2BTSGQm`
-  https://explorer.solana.com/tx/32ZinuMUhd8EHu6A9US4sZymGe2cWJ6v6BtB7MgNJVcJCrpLdoiZuhkaePJUR1DQyuGwXm7eBFH3hm26Q2BTSGQm?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
-- **accept_escrow:** `4nmPqYmLMJaW7SSZpPMf55ySthnLzW94damkRjR2yt9oBCNVxDAG9CLWRbMrmRv1BHkFw5KHhkk5rTLCR8UED3Bm`
-  https://explorer.solana.com/tx/4nmPqYmLMJaW7SSZpPMf55ySthnLzW94damkRjR2yt9oBCNVxDAG9CLWRbMrmRv1BHkFw5KHhkk5rTLCR8UED3Bm?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
-- **deliver:** `4YKFXhJxvu3daErBZ9Dt1G1rjihcaC2PG8qUsx2jDjtBfeaApx1i7TUz5YJpmsLiGHQC9fBGeZfYobE8as1wq4SJ`
-  https://explorer.solana.com/tx/4YKFXhJxvu3daErBZ9Dt1G1rjihcaC2PG8qUsx2jDjtBfeaApx1i7TUz5YJpmsLiGHQC9fBGeZfYobE8as1wq4SJ?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
-- **approve:** `58ZTAfyLRHxSdrQCsjAZfqx1KHnb8qNGRCfWABamQaapD8AAQLvi9gxLLeWisWMeuitkmPRu4LnBdBTQguzLzodx`
-  https://explorer.solana.com/tx/58ZTAfyLRHxSdrQCsjAZfqx1KHnb8qNGRCfWABamQaapD8AAQLvi9gxLLeWisWMeuitkmPRu4LnBdBTQguzLzodx?cluster=custom&customUrl=http%3A%2F%2Flocalhost%3A8899
+All Solana devnet faucets are IP-rate-limited (429 Too Many Requests):
+- `api.devnet.solana.com` requestAirdrop — 429
+- `faucet.solana.com` — requires Cloudflare Turnstile CAPTCHA + returns 429
+- `solfaucet.com` — proxies to same devnet RPC, 429
+- `faucet.quicknode.com` — requires existing SOL balance
+- `devnetfaucet.org` — requires Solana ecosystem GitHub repo
+- `faucet.chainstack.com` — requires 0.8 SOL on mainnet
 
-🎉 **Full escrow lifecycle completed on Solana!**
+The rate limit is per-IP and resets after ~24 hours. Once SOL is available, the script runs the full flow.
+
+## Transaction Links (pending)
+
+Will be populated after successful run.
