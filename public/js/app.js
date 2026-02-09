@@ -256,14 +256,15 @@ const App = (() => {
     const filtered = filter === 'all' ? MOCK_DECISIONS : MOCK_DECISIONS.filter(d => d.verdict === filter);
 
     tbody.innerHTML = filtered.map(d => `
-      <tr>
-        <td style="font-family:var(--font-mono);color:var(--accent-light)">Escrow #${d.escrowId}</td>
-        <td>${d.date}</td>
-        <td class="verdict-${d.verdict}">${d.verdict === 'buyer' ? '🔵 Buyer Won' : '🟢 Seller Won'}</td>
-        <td style="font-family:var(--font-mono)">$${d.amount} USDC</td>
-        <td style="font-size:0.8rem">${d.models}</td>
-        <td style="font-size:0.8rem;max-width:250px">${d.reasoning}</td>
-      </tr>
+      <div class="decision-row">
+        <div class="decision-header">
+          <span class="decision-id">Escrow #${d.escrowId}</span>
+          <span class="decision-verdict ${d.verdict === 'buyer' ? 'verdict-buyer' : 'verdict-seller'}">${d.verdict === 'buyer' ? '✗ Buyer' : '✓ Seller'}</span>
+          <span class="decision-amount">$${d.amount} USDC</span>
+          <span class="decision-date">${d.date}</span>
+        </div>
+        <div class="decision-reasoning">${d.models}: ${d.reasoning}</div>
+      </div>
     `).join('');
   }
 
