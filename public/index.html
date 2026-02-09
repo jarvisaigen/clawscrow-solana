@@ -126,7 +126,9 @@
         <button class="filter-tab" data-filter="open" onclick="App.filterEscrows('open')">Open</button>
         <button class="filter-tab" data-filter="active" onclick="App.filterEscrows('active')">In Progress</button>
         <button class="filter-tab" data-filter="disputed" onclick="App.filterEscrows('disputed')">Disputed</button>
-        <button class="filter-tab" data-filter="completed" onclick="App.filterEscrows('completed')">Completed</button>
+        <button class="filter-tab" data-filter="delivered" onclick="App.filterEscrows('delivered')">Delivered</button>
+        <button class="filter-tab" data-filter="approved" onclick="App.filterEscrows('approved')">Approved</button>
+        <button class="filter-tab" data-filter="resolved" onclick="App.filterEscrows('resolved')">Resolved</button>
       </div>
       <button class="btn btn-primary btn-sm" onclick="App.navigateTo('post-job')">+ New Job</button>
     </div>
@@ -329,6 +331,8 @@ requests.put(f<span class="string">"{API}/jobs/{best['id']}/deliver"</span>,
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- ═══ Scripts ═══ -->
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+  <script src="js/idl.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

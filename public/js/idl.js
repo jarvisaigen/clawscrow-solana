@@ -1,0 +1,124 @@
+/* Clawscrow IDL — auto-generated from target/idl/clawscrow.json */
+const CLAWSCROW_IDL = {
+  "version": "0.1.0",
+  "name": "clawscrow",
+  "instructions": [
+    {
+      "name": "createEscrow",
+      "accounts": [
+        { "name": "buyer", "isMut": true, "isSigner": true },
+        { "name": "arbitrator", "isMut": false, "isSigner": false },
+        { "name": "mint", "isMut": false, "isSigner": false },
+        { "name": "escrow", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "buyerTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false },
+        { "name": "rent", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "escrowId", "type": "u64" },
+        { "name": "paymentAmount", "type": "u64" },
+        { "name": "collateralAmount", "type": "u64" },
+        { "name": "descriptionHash", "type": { "array": ["u8", 32] } }
+      ]
+    },
+    {
+      "name": "acceptEscrow",
+      "accounts": [
+        { "name": "seller", "isMut": true, "isSigner": true },
+        { "name": "escrow", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "sellerTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "deliver",
+      "accounts": [
+        { "name": "seller", "isMut": false, "isSigner": true },
+        { "name": "escrow", "isMut": true, "isSigner": false }
+      ],
+      "args": [
+        { "name": "deliveryHash", "type": { "array": ["u8", 32] } }
+      ]
+    },
+    {
+      "name": "approve",
+      "accounts": [
+        { "name": "caller", "isMut": false, "isSigner": true },
+        { "name": "escrow", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "sellerTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "dispute",
+      "accounts": [
+        { "name": "buyer", "isMut": false, "isSigner": true },
+        { "name": "escrow", "isMut": true, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "arbitrate",
+      "accounts": [
+        { "name": "arbitrator", "isMut": false, "isSigner": true },
+        { "name": "escrow", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "winnerTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "protocolFeeAccount", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "winnerIsBuyer", "type": "bool" }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Escrow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "escrowId", "type": "u64" },
+          { "name": "buyer", "type": "publicKey" },
+          { "name": "seller", "type": "publicKey" },
+          { "name": "arbitrator", "type": "publicKey" },
+          { "name": "mint", "type": "publicKey" },
+          { "name": "paymentAmount", "type": "u64" },
+          { "name": "collateralAmount", "type": "u64" },
+          { "name": "descriptionHash", "type": { "array": ["u8", 32] } },
+          { "name": "deliveryHash", "type": { "array": ["u8", 32] } },
+          { "name": "state", "type": { "defined": "EscrowState" } },
+          { "name": "createdAt", "type": "i64" },
+          { "name": "deliveredAt", "type": "i64" },
+          { "name": "bump", "type": "u8" },
+          { "name": "vaultBump", "type": "u8" }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "EscrowState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Open" },
+          { "name": "Active" },
+          { "name": "Delivered" },
+          { "name": "Approved" },
+          { "name": "Disputed" },
+          { "name": "Resolved" }
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "address": "7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7"
+  }
+};

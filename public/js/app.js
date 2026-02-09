@@ -1,16 +1,37 @@
 /* ═══════════════════════════════════════════════════════════
    CLAWSCROW — Frontend Application
-   Solana wallet integration + escrow interaction stubs
+   Real Solana devnet integration via @solana/web3.js
    ═══════════════════════════════════════════════════════════ */
 
 const App = (() => {
+  const { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram, SYSVAR_RENT_PUBKEY } = solanaWeb3;
+
   // ─── Config ───
   const CONFIG = {
-    PROGRAM_ID: '7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7',
-    USDC_MINT: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', // Devnet USDC
-    CLUSTER: 'devnet',
+    PROGRAM_ID: new PublicKey('7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7'),
+    USDC_MINT: new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'),
+    TOKEN_PROGRAM_ID: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+    ASSOCIATED_TOKEN_PROGRAM_ID: new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'),
     RPC_URL: 'https://api.devnet.solana.com',
   };
+
+  const STATE_NAMES = ['open', 'active', 'delivered', 'approved', 'disputed', 'resolved'];
+
+  // Anchor discriminators (first 8 bytes of sha256("global:<name>"))
+  // Pre-computed for static file usage
+  const DISCRIMINATORS = {
+    createEscrow:  [0x42, 0x0c, 0xa0, 0x62, 0x6e, 0x3a, 0x1b, 0x67],
+    acceptEscrow:  [0xce, 0xb0, 0x4c, 0x3e, 0xf0, 0xb0, 0x8e, 0x2c],
+    deliver:       [0x3e, 0xc0, 0xb0, 0x4a, 0x6d, 0xc8, 0xae, 0x25],
+    approve:       [0x70, 0xfe, 0x30, 0x0e, 0x0a, 0xd0, 0xb0, 0x62],
+    dispute:       [0x4a, 0x0e, 0x6d, 0x21, 0x2a, 0x36, 0x68, 0x43],
+    arbitrate:     [0x65, 0x8e, 0x30, 0x0a, 0xc8, 0x8c, 0xb4, 0x6a],
+  };
+
+  // Anchor account discriminator for Escrow
+  const ESCROW_DISCRIMINATOR_SIZE = 8;
+
+  const connection = new Connection(CONFIG.RPC_URL, 'confirmed');
 
   // ─── State ───
   let wallet = null;
@@ -18,69 +39,95 @@ const App = (() => {
   let escrows = [];
   let currentFilter = 'all';
 
-  // ─── Mock Data (replaced by on-chain reads when program is deployed) ───
-  const MOCK_ESCROWS = [
-    {
-      id: 'ESC-001', title: 'Analyze 30-day DEX volume data',
-      description: 'Process and analyze 30 days of decentralized exchange volume data across Raydium, Orca, and Jupiter. Deliver a structured JSON report with daily volumes, top pairs, and trend analysis.',
-      reward: 150, status: 'open', category: 'data',
-      poster: '7xKX...9mPQ', worker: null,
-      deadline: '2026-02-11T12:00:00Z', created: '2026-02-09T10:00:00Z'
-    },
-    {
-      id: 'ESC-002', title: 'Build Telegram trading bot',
-      description: 'Create a Telegram bot that monitors Solana token launches and sends alerts based on configurable filters (liquidity, holder count, etc).',
-      reward: 500, status: 'active', category: 'code',
-      poster: '3bFx...7kLm', worker: '9pQr...2nWs',
-      deadline: '2026-02-12T18:00:00Z', created: '2026-02-08T14:00:00Z'
-    },
-    {
-      id: 'ESC-003', title: 'Write tokenomics research report',
-      description: 'Research and write a comprehensive report on sustainable tokenomics models for AI agent networks. Include case studies from at least 5 projects.',
-      reward: 200, status: 'open', category: 'research',
-      poster: '5mNx...1qTz', worker: null,
-      deadline: '2026-02-14T00:00:00Z', created: '2026-02-09T08:00:00Z'
-    },
-    {
-      id: 'ESC-004', title: 'Optimize MEV strategy script',
-      description: 'Review and optimize an existing Jito MEV bundle strategy for Solana. Target: reduce failed bundles by 30% and improve profitability.',
-      reward: 1000, status: 'active', category: 'trading',
-      poster: '2kWv...8hDj', worker: 'AiBot...Qx7',
-      deadline: '2026-02-10T20:00:00Z', created: '2026-02-07T16:00:00Z'
-    },
-    {
-      id: 'ESC-005', title: 'Generate social media content plan',
-      description: 'Create a 30-day content calendar for a Solana DeFi protocol launch. Include tweet copy, thread outlines, and meme concepts.',
-      reward: 75, status: 'disputed', category: 'content',
-      poster: '8rLs...4vKn', worker: 'GPT4...mX9',
-      deadline: '2026-02-09T15:00:00Z', created: '2026-02-06T11:00:00Z'
-    },
-    {
-      id: 'ESC-006', title: 'Audit smart contract for vulnerabilities',
-      description: 'Perform a security audit on an Anchor program (~800 lines). Check for common vulnerabilities: reentrancy, overflow, PDA validation, authority checks.',
-      reward: 2000, status: 'completed', category: 'code',
-      poster: '1nBx...6jRt', worker: 'Claude...3k',
-      deadline: '2026-02-08T12:00:00Z', created: '2026-02-05T09:00:00Z'
-    },
-  ];
+  // ─── Account Deserialization ───
+  // Escrow layout after 8-byte discriminator:
+  // escrowId: u64 (8), buyer: pubkey (32), seller: pubkey (32), arbitrator: pubkey (32),
+  // mint: pubkey (32), paymentAmount: u64 (8), collateralAmount: u64 (8),
+  // descriptionHash: [u8;32] (32), deliveryHash: [u8;32] (32),
+  // state: u8 (1), createdAt: i64 (8), deliveredAt: i64 (8), bump: u8 (1), vaultBump: u8 (1)
+  // Total: 8 + 8 + 32 + 32 + 32 + 32 + 8 + 8 + 32 + 32 + 1 + 8 + 8 + 1 + 1 = 243
 
-  const MOCK_ARBITRATIONS = [
-    {
-      jobId: 'ESC-005', date: '2026-02-09T16:30:00Z',
-      verdict: 'worker', confidence: 87,
-      reasoning: 'The worker delivered a complete 30-day content calendar with 90 tweet drafts, 8 thread outlines, and 15 meme concepts. While the poster claims the quality was insufficient, the deliverable objectively meets the specification outlined in the job description. The content demonstrates understanding of DeFi terminology and target audience. Verdict: Release funds to worker.',
-    },
-    {
-      jobId: 'ESC-012', date: '2026-02-08T11:00:00Z',
-      verdict: 'poster', confidence: 94,
-      reasoning: 'The worker submitted a data analysis that only covered 12 days instead of the requested 30 days. Multiple data points contain errors when cross-referenced with on-chain data. The deliverable does not meet the minimum requirements. Verdict: Return funds to poster.',
-    },
-    {
-      jobId: 'ESC-009', date: '2026-02-07T09:15:00Z',
-      verdict: 'split', confidence: 72,
-      reasoning: 'The worker delivered a functional bot but missed 2 of 5 requested features (portfolio tracking and P&L reporting). Core functionality (alerts, monitoring) works correctly. Given partial completion, a 60/40 split in favor of the worker is recommended. Verdict: Split — 60% to worker, 40% returned to poster.',
-    },
-  ];
+  function deserializeEscrow(data, pubkey) {
+    const buf = Buffer.from(data);
+    let offset = 8; // skip discriminator
+
+    const escrowId = buf.readBigUInt64LE(offset); offset += 8;
+    const buyer = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
+    const seller = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
+    const arbitrator = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
+    const mint = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
+    const paymentAmount = buf.readBigUInt64LE(offset); offset += 8;
+    const collateralAmount = buf.readBigUInt64LE(offset); offset += 8;
+    const descriptionHash = Array.from(buf.slice(offset, offset + 32)); offset += 32;
+    const deliveryHash = Array.from(buf.slice(offset, offset + 32)); offset += 32;
+    const state = buf.readUInt8(offset); offset += 1;
+    const createdAt = Number(buf.readBigInt64LE(offset)); offset += 8;
+    const deliveredAt = Number(buf.readBigInt64LE(offset)); offset += 8;
+    const bump = buf.readUInt8(offset); offset += 1;
+    const vaultBump = buf.readUInt8(offset); offset += 1;
+
+    return {
+      pubkey,
+      escrowId: Number(escrowId),
+      buyer: buyer.toBase58(),
+      seller: seller.toBase58(),
+      arbitrator: arbitrator.toBase58(),
+      mint: mint.toBase58(),
+      paymentAmount: Number(paymentAmount),
+      collateralAmount: Number(collateralAmount),
+      descriptionHash,
+      deliveryHash,
+      state: STATE_NAMES[state] || 'unknown',
+      stateIndex: state,
+      createdAt: createdAt * 1000, // ms
+      deliveredAt: deliveredAt * 1000,
+      bump,
+      vaultBump,
+    };
+  }
+
+  // ─── PDA Helpers ───
+  async function findEscrowPDA(buyerPubkey, escrowId) {
+    const escrowIdBuf = Buffer.alloc(8);
+    escrowIdBuf.writeBigUInt64LE(BigInt(escrowId));
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('escrow'), new PublicKey(buyerPubkey).toBuffer(), escrowIdBuf],
+      CONFIG.PROGRAM_ID
+    );
+  }
+
+  async function findVaultPDA(escrowPubkey) {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('vault'), new PublicKey(escrowPubkey).toBuffer()],
+      CONFIG.PROGRAM_ID
+    );
+  }
+
+  function getAssociatedTokenAddress(owner, mint) {
+    return PublicKey.findProgramAddressSync(
+      [new PublicKey(owner).toBuffer(), CONFIG.TOKEN_PROGRAM_ID.toBuffer(), new PublicKey(mint).toBuffer()],
+      CONFIG.ASSOCIATED_TOKEN_PROGRAM_ID
+    )[0];
+  }
+
+  // ─── Instruction Builder ───
+  async function computeDiscriminator(name) {
+    // sha256("global:<name>") first 8 bytes
+    const msgBuffer = new TextEncoder().encode(`global:${name}`);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    return new Uint8Array(hashBuffer).slice(0, 8);
+  }
+
+  function encodeLittleEndianU64(value) {
+    const buf = new ArrayBuffer(8);
+    const view = new DataView(buf);
+    view.setBigUint64(0, BigInt(value), true);
+    return new Uint8Array(buf);
+  }
+
+  function encodeBool(value) {
+    return new Uint8Array([value ? 1 : 0]);
+  }
 
   // ─── Wallet ───
   async function connectWallet() {
@@ -90,7 +137,6 @@ const App = (() => {
         return;
       }
 
-      // Check for Phantom
       const provider = window.solana;
       if (!provider?.isPhantom) {
         toast('Please install Phantom wallet', 'error');
@@ -109,9 +155,7 @@ const App = (() => {
       toast(`Connected: ${truncateAddress(publicKey)}`, 'success');
       loadEscrows();
 
-      // Listen for disconnect
       provider.on('disconnect', () => disconnectWallet());
-
     } catch (err) {
       if (err.code === 4001) {
         toast('Connection rejected', 'info');
@@ -136,28 +180,50 @@ const App = (() => {
     return addr.slice(0, 4) + '...' + addr.slice(-4);
   }
 
-  // ─── Escrows ───
-  function loadEscrows() {
-    // TODO: Replace with actual on-chain program account fetch
-    // Using Anchor + connection.getProgramAccounts(PROGRAM_ID)
-    escrows = MOCK_ESCROWS;
+  // ─── Escrows (on-chain) ───
+  async function loadEscrows() {
+    try {
+      const accounts = await connection.getProgramAccounts(CONFIG.PROGRAM_ID, {
+        commitment: 'confirmed',
+      });
+
+      escrows = accounts
+        .filter(a => a.account.data.length >= 243)
+        .map(a => {
+          try {
+            return deserializeEscrow(a.account.data, a.pubkey.toBase58());
+          } catch (e) {
+            console.warn('Failed to deserialize escrow account:', a.pubkey.toBase58(), e);
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      console.log(`Loaded ${escrows.length} escrows from chain`);
+    } catch (err) {
+      console.error('Failed to load escrows:', err);
+      toast('Failed to load escrows from devnet', 'error');
+      escrows = [];
+    }
     updateStats();
     renderEscrows();
   }
 
   function updateStats() {
-    const total = escrows.reduce((s, e) => s + e.reward, 0);
-    const completed = escrows.filter(e => e.status === 'completed').length;
+    const totalUsdc = escrows.reduce((s, e) => s + e.paymentAmount / 1e6, 0);
+    const completed = escrows.filter(e => e.state === 'approved' || e.state === 'resolved').length;
     const rate = escrows.length ? Math.round((completed / escrows.length) * 100) : 0;
+    const uniqueWorkers = new Set(escrows.map(e => e.seller).filter(s => s !== '11111111111111111111111111111111')).size;
 
-    animateNumber('statVolume', total, '$', ' USDC');
+    animateNumber('statVolume', Math.round(totalUsdc), '$', ' USDC');
     animateNumber('statJobs', escrows.length);
     animateNumber('statCompleted', rate, '', '%');
-    animateNumber('statAgents', 42); // Mock — would come from unique workers
+    animateNumber('statAgents', uniqueWorkers);
   }
 
   function animateNumber(elId, target, prefix = '', suffix = '') {
     const el = document.getElementById(elId);
+    if (!el) return;
     let current = 0;
     const step = Math.max(1, Math.ceil(target / 30));
     const timer = setInterval(() => {
@@ -171,25 +237,25 @@ const App = (() => {
     const list = document.getElementById('escrowList');
     const filtered = currentFilter === 'all'
       ? escrows
-      : escrows.filter(e => e.status === currentFilter);
+      : escrows.filter(e => e.state === currentFilter);
 
     if (!filtered.length) {
-      list.innerHTML = `<div class="empty-state"><div class="icon">🦞</div><p>No escrows match this filter.</p></div>`;
+      list.innerHTML = `<div class="empty-state"><div class="icon">🦞</div><p>${escrows.length === 0 ? 'No escrows found on-chain yet. Create the first one!' : 'No escrows match this filter.'}</p></div>`;
       return;
     }
 
     list.innerHTML = filtered.map(e => `
-      <div class="escrow-card" onclick="App.openJob('${e.id}')">
+      <div class="escrow-card" onclick="App.openJob('${e.pubkey}')">
         <div>
-          <div class="escrow-title">${e.title}</div>
+          <div class="escrow-title">Escrow #${e.escrowId}</div>
           <div class="escrow-meta">
-            <span>${categoryIcon(e.category)} ${e.category}</span>
-            <span>🆔 ${e.id}</span>
+            <span>👤 ${truncateAddress(e.buyer)}</span>
+            <span>🔑 ${truncateAddress(e.pubkey)}</span>
           </div>
         </div>
-        <div class="escrow-amount">$${e.reward.toLocaleString()}</div>
-        <span class="escrow-status status-${e.status}">${e.status}</span>
-        <div class="escrow-time">${timeAgo(e.created)}</div>
+        <div class="escrow-amount">$${(e.paymentAmount / 1e6).toLocaleString()} USDC</div>
+        <span class="escrow-status status-${e.state}">${e.state}</span>
+        <div class="escrow-time">${timeAgo(e.createdAt)}</div>
       </div>
     `).join('');
   }
@@ -202,46 +268,46 @@ const App = (() => {
     renderEscrows();
   }
 
-  // ─── Job Detail ───
-  function openJob(id) {
-    const job = escrows.find(e => e.id === id);
+  // ─── Job Detail Modal ───
+  function openJob(pubkey) {
+    const job = escrows.find(e => e.pubkey === pubkey);
     if (!job) return;
 
-    document.getElementById('modalTitle').textContent = job.title;
+    document.getElementById('modalTitle').textContent = `Escrow #${job.escrowId}`;
     const statusEl = document.getElementById('modalStatus');
-    statusEl.textContent = job.status.toUpperCase();
-    statusEl.className = `escrow-status status-${job.status} job-status-badge`;
-    document.getElementById('modalReward').textContent = `$${job.reward.toLocaleString()} USDC`;
-    document.getElementById('modalDeadline').textContent = new Date(job.deadline).toLocaleString();
-    document.getElementById('modalPoster').textContent = job.poster;
-    document.getElementById('modalWorker').textContent = job.worker || 'Awaiting agent...';
-    document.getElementById('modalDescription').textContent = job.description;
+    statusEl.textContent = job.state.toUpperCase();
+    statusEl.className = `escrow-status status-${job.state} job-status-badge`;
+    document.getElementById('modalReward').textContent = `$${(job.paymentAmount / 1e6).toLocaleString()} USDC`;
+    document.getElementById('modalDeadline').textContent = job.collateralAmount > 0 ? `Collateral: $${(job.collateralAmount / 1e6).toLocaleString()} USDC` : 'No collateral';
+    document.getElementById('modalPoster').textContent = truncateAddress(job.buyer);
+    const sellerEmpty = job.seller === '11111111111111111111111111111111';
+    document.getElementById('modalWorker').textContent = sellerEmpty ? 'Awaiting agent...' : truncateAddress(job.seller);
+    document.getElementById('modalDescription').textContent = `Account: ${job.pubkey}\nBuyer: ${job.buyer}\nSeller: ${sellerEmpty ? 'None' : job.seller}\nArbitrator: ${job.arbitrator}\nMint: ${job.mint}\nCreated: ${new Date(job.createdAt).toLocaleString()}${job.deliveredAt > 0 ? '\nDelivered: ' + new Date(job.deliveredAt).toLocaleString() : ''}`;
 
-    // Dynamic actions based on status & role
+    // Dynamic actions
     const actions = document.getElementById('modalActions');
     actions.innerHTML = '';
+    const isMyBuyer = publicKey && job.buyer === publicKey;
+    const isMySeller = publicKey && job.seller === publicKey;
+    const isMyArbitrator = publicKey && job.arbitrator === publicKey;
 
-    if (job.status === 'open') {
-      actions.innerHTML = `
-        <button class="btn btn-success" onclick="App.acceptJob('${id}')">🤖 Accept Job</button>
-        <button class="btn btn-secondary" onclick="App.closeModal()">Close</button>
-      `;
-    } else if (job.status === 'active') {
-      actions.innerHTML = `
-        <button class="btn btn-primary" onclick="App.deliverJob('${id}')">📦 Submit Delivery</button>
-        <button class="btn btn-warning" onclick="App.disputeJob('${id}')">⚖️ Raise Dispute</button>
-        <button class="btn btn-success" onclick="App.approveJob('${id}')">✅ Approve & Release</button>
-        <button class="btn btn-secondary" onclick="App.closeModal()">Close</button>
-      `;
-    } else if (job.status === 'disputed') {
-      actions.innerHTML = `
-        <button class="btn btn-secondary" onclick="App.closeModal()">⏳ Awaiting Arbitration</button>
-      `;
-    } else {
-      actions.innerHTML = `
-        <button class="btn btn-secondary" onclick="App.closeModal()">Close</button>
-      `;
+    if (job.state === 'open' && publicKey && !isMyBuyer) {
+      actions.innerHTML += `<button class="btn btn-success" onclick="App.acceptJob('${pubkey}')">🤖 Accept Escrow</button>`;
     }
+    if (job.state === 'active' && isMySeller) {
+      actions.innerHTML += `<button class="btn btn-primary" onclick="App.deliverJob('${pubkey}')">📦 Submit Delivery</button>`;
+    }
+    if (job.state === 'delivered' && (isMyBuyer || isMyArbitrator)) {
+      actions.innerHTML += `<button class="btn btn-success" onclick="App.approveJob('${pubkey}')">✅ Approve & Release</button>`;
+    }
+    if (job.state === 'delivered' && isMyBuyer) {
+      actions.innerHTML += `<button class="btn btn-warning" onclick="App.disputeJob('${pubkey}')">⚖️ Raise Dispute</button>`;
+    }
+    if (job.state === 'disputed' && isMyArbitrator) {
+      actions.innerHTML += `<button class="btn btn-success" onclick="App.arbitrateJob('${pubkey}', true)">🔵 Rule for Buyer</button>`;
+      actions.innerHTML += `<button class="btn btn-warning" onclick="App.arbitrateJob('${pubkey}', false)">🟢 Rule for Seller</button>`;
+    }
+    actions.innerHTML += `<button class="btn btn-secondary" onclick="App.closeModal()">Close</button>`;
 
     document.getElementById('jobModal').classList.add('active');
   }
@@ -250,132 +316,323 @@ const App = (() => {
     document.getElementById('jobModal').classList.remove('active');
   }
 
-  // ─── Job Actions (stubs — will call Anchor program) ───
+  // ─── Transaction Helpers ───
+  async function sendTx(instruction) {
+    if (!wallet || !publicKey) {
+      toast('Connect your wallet first', 'error');
+      return null;
+    }
+    try {
+      const tx = new Transaction().add(instruction);
+      tx.feePayer = new PublicKey(publicKey);
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      const signed = await wallet.signTransaction(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize());
+      await connection.confirmTransaction(sig, 'confirmed');
+      return sig;
+    } catch (err) {
+      console.error('Transaction failed:', err);
+      if (err.message?.includes('User rejected')) {
+        toast('Transaction rejected', 'info');
+      } else {
+        toast(`Transaction failed: ${err.message || err}`, 'error');
+      }
+      return null;
+    }
+  }
+
+  // ─── Job Actions (real on-chain) ───
   async function postJob(event) {
     event.preventDefault();
     if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
 
-    const title = document.getElementById('jobTitle').value;
-    const desc = document.getElementById('jobDescription').value;
     const reward = parseFloat(document.getElementById('jobReward').value);
-    const deadline = parseInt(document.getElementById('jobDeadline').value);
-    const category = document.getElementById('jobCategory').value;
+    const collateral = 0; // Could add a collateral field later
+    const description = document.getElementById('jobDescription').value;
 
-    toast('Submitting transaction...', 'info');
+    toast('Preparing transaction...', 'info');
 
-    // TODO: Build and send Anchor transaction
-    // const tx = await program.methods.postJob(title, desc, new BN(reward * 1e6), new BN(deadline * 3600))
-    //   .accounts({ poster: publicKey, escrowAccount: escrowPDA, usdcMint: CONFIG.USDC_MINT, ... })
-    //   .rpc();
+    try {
+      // Generate escrow ID from timestamp
+      const escrowId = Date.now();
 
-    // Simulate
-    await sleep(1500);
-    const newJob = {
-      id: `ESC-${String(escrows.length + 1).padStart(3, '0')}`,
-      title, description: desc, reward, status: 'open', category,
-      poster: truncateAddress(publicKey), worker: null,
-      deadline: new Date(Date.now() + deadline * 3600000).toISOString(),
-      created: new Date().toISOString()
-    };
-    escrows.unshift(newJob);
-    renderEscrows();
-    updateStats();
+      // Hash description
+      const descBytes = new TextEncoder().encode(description);
+      const descHashBuf = await crypto.subtle.digest('SHA-256', descBytes);
+      const descriptionHash = new Uint8Array(descHashBuf);
 
-    document.getElementById('postJobForm').reset();
-    toast(`Job posted! ${newJob.id} — $${reward} USDC locked`, 'success');
-    navigateTo('escrows');
-  }
+      // Derive PDAs
+      const [escrowPDA] = await findEscrowPDA(publicKey, escrowId);
+      const [vaultPDA] = await findVaultPDA(escrowPDA.toBase58());
 
-  async function acceptJob(id) {
-    if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
-    toast('Sending accept transaction...', 'info');
-    await sleep(1000);
-    const job = escrows.find(e => e.id === id);
-    if (job) {
-      job.status = 'active';
-      job.worker = truncateAddress(publicKey);
-      renderEscrows();
-      closeModal();
-      toast(`Accepted ${id}! You're now the worker.`, 'success');
+      // Buyer's USDC token account
+      const buyerATA = getAssociatedTokenAddress(publicKey, CONFIG.USDC_MINT.toBase58());
+
+      // Build instruction data
+      const disc = await computeDiscriminator('create_escrow');
+      const data = Buffer.concat([
+        Buffer.from(disc),
+        encodeLittleEndianU64(escrowId),
+        encodeLittleEndianU64(Math.round(reward * 1e6)),
+        encodeLittleEndianU64(collateral),
+        Buffer.from(descriptionHash),
+      ]);
+
+      // Use a default arbitrator (program deployer or self for devnet testing)
+      const arbitrator = new PublicKey(publicKey);
+
+      const ix = new TransactionInstruction({
+        programId: CONFIG.PROGRAM_ID,
+        keys: [
+          { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: true },
+          { pubkey: arbitrator, isSigner: false, isWritable: false },
+          { pubkey: CONFIG.USDC_MINT, isSigner: false, isWritable: false },
+          { pubkey: escrowPDA, isSigner: false, isWritable: true },
+          { pubkey: vaultPDA, isSigner: false, isWritable: true },
+          { pubkey: buyerATA, isSigner: false, isWritable: true },
+          { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+        ],
+        data,
+      });
+
+      toast('Please approve the transaction in your wallet...', 'info');
+      const sig = await sendTx(ix);
+      if (sig) {
+        toast(`Escrow created! Tx: ${truncateAddress(sig)}`, 'success');
+        document.getElementById('postJobForm').reset();
+        await loadEscrows();
+        navigateTo('escrows');
+      }
+    } catch (err) {
+      console.error('Create escrow error:', err);
+      toast(`Failed to create escrow: ${err.message || err}`, 'error');
     }
   }
 
-  async function deliverJob(id) {
+  async function acceptJob(pubkey) {
     if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
-    toast('Submitting delivery...', 'info');
-    await sleep(1000);
-    toast(`Delivery submitted for ${id}. Awaiting poster approval.`, 'success');
-    closeModal();
-  }
 
-  async function approveJob(id) {
-    if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
-    toast('Releasing funds...', 'info');
-    await sleep(1000);
-    const job = escrows.find(e => e.id === id);
-    if (job) {
-      job.status = 'completed';
-      renderEscrows();
-      updateStats();
-      closeModal();
-      toast(`${id} completed! $${job.reward} USDC released to worker.`, 'success');
+    const job = escrows.find(e => e.pubkey === pubkey);
+    if (!job) return;
+
+    toast('Preparing accept transaction...', 'info');
+    try {
+      const [vaultPDA] = await findVaultPDA(pubkey);
+      const sellerATA = getAssociatedTokenAddress(publicKey, job.mint);
+
+      const disc = await computeDiscriminator('accept_escrow');
+      const data = Buffer.from(disc);
+
+      const ix = new TransactionInstruction({
+        programId: CONFIG.PROGRAM_ID,
+        keys: [
+          { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: true },
+          { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
+          { pubkey: vaultPDA, isSigner: false, isWritable: true },
+          { pubkey: sellerATA, isSigner: false, isWritable: true },
+          { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        ],
+        data,
+      });
+
+      toast('Please approve the transaction...', 'info');
+      const sig = await sendTx(ix);
+      if (sig) {
+        toast(`Escrow accepted! Tx: ${truncateAddress(sig)}`, 'success');
+        closeModal();
+        await loadEscrows();
+      }
+    } catch (err) {
+      console.error('Accept escrow error:', err);
+      toast(`Failed to accept: ${err.message || err}`, 'error');
     }
   }
 
-  async function disputeJob(id) {
+  async function deliverJob(pubkey) {
     if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
-    toast('Filing dispute...', 'info');
-    await sleep(1000);
-    const job = escrows.find(e => e.id === id);
-    if (job) {
-      job.status = 'disputed';
-      renderEscrows();
-      closeModal();
-      toast(`Dispute filed for ${id}. AI arbitrator will review.`, 'warning');
+
+    const deliveryText = prompt('Enter delivery description or URL:');
+    if (!deliveryText) return;
+
+    toast('Submitting delivery on-chain...', 'info');
+    try {
+      const deliveryBytes = new TextEncoder().encode(deliveryText);
+      const deliveryHashBuf = await crypto.subtle.digest('SHA-256', deliveryBytes);
+      const deliveryHash = new Uint8Array(deliveryHashBuf);
+
+      const disc = await computeDiscriminator('deliver');
+      const data = Buffer.concat([Buffer.from(disc), Buffer.from(deliveryHash)]);
+
+      const ix = new TransactionInstruction({
+        programId: CONFIG.PROGRAM_ID,
+        keys: [
+          { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false },
+          { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
+        ],
+        data,
+      });
+
+      const sig = await sendTx(ix);
+      if (sig) {
+        toast(`Delivery submitted! Tx: ${truncateAddress(sig)}`, 'success');
+        closeModal();
+        await loadEscrows();
+      }
+    } catch (err) {
+      console.error('Deliver error:', err);
+      toast(`Failed to deliver: ${err.message || err}`, 'error');
     }
   }
 
-  // ─── Arbitration ───
+  async function approveJob(pubkey) {
+    if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
+
+    const job = escrows.find(e => e.pubkey === pubkey);
+    if (!job) return;
+
+    toast('Approving and releasing funds...', 'info');
+    try {
+      const [vaultPDA] = await findVaultPDA(pubkey);
+      const sellerATA = getAssociatedTokenAddress(job.seller, job.mint);
+
+      const disc = await computeDiscriminator('approve');
+      const data = Buffer.from(disc);
+
+      const ix = new TransactionInstruction({
+        programId: CONFIG.PROGRAM_ID,
+        keys: [
+          { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false },
+          { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
+          { pubkey: vaultPDA, isSigner: false, isWritable: true },
+          { pubkey: sellerATA, isSigner: false, isWritable: true },
+          { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        ],
+        data,
+      });
+
+      const sig = await sendTx(ix);
+      if (sig) {
+        toast(`Escrow approved! Funds released. Tx: ${truncateAddress(sig)}`, 'success');
+        closeModal();
+        await loadEscrows();
+      }
+    } catch (err) {
+      console.error('Approve error:', err);
+      toast(`Failed to approve: ${err.message || err}`, 'error');
+    }
+  }
+
+  async function disputeJob(pubkey) {
+    if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
+
+    toast('Filing dispute on-chain...', 'info');
+    try {
+      const disc = await computeDiscriminator('dispute');
+      const data = Buffer.from(disc);
+
+      const ix = new TransactionInstruction({
+        programId: CONFIG.PROGRAM_ID,
+        keys: [
+          { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false },
+          { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
+        ],
+        data,
+      });
+
+      const sig = await sendTx(ix);
+      if (sig) {
+        toast(`Dispute filed! Tx: ${truncateAddress(sig)}`, 'success');
+        closeModal();
+        await loadEscrows();
+      }
+    } catch (err) {
+      console.error('Dispute error:', err);
+      toast(`Failed to dispute: ${err.message || err}`, 'error');
+    }
+  }
+
+  async function arbitrateJob(pubkey, winnerIsBuyer) {
+    if (!publicKey) { toast('Connect your wallet first', 'error'); return; }
+
+    const job = escrows.find(e => e.pubkey === pubkey);
+    if (!job) return;
+
+    toast('Submitting arbitration verdict...', 'info');
+    try {
+      const [vaultPDA] = await findVaultPDA(pubkey);
+      const winner = winnerIsBuyer ? job.buyer : job.seller;
+      const winnerATA = getAssociatedTokenAddress(winner, job.mint);
+      // Protocol fee account — use arbitrator's ATA as fee destination for devnet
+      const feeATA = getAssociatedTokenAddress(publicKey, job.mint);
+
+      const disc = await computeDiscriminator('arbitrate');
+      const data = Buffer.concat([Buffer.from(disc), encodeBool(winnerIsBuyer)]);
+
+      const ix = new TransactionInstruction({
+        programId: CONFIG.PROGRAM_ID,
+        keys: [
+          { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false },
+          { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
+          { pubkey: vaultPDA, isSigner: false, isWritable: true },
+          { pubkey: winnerATA, isSigner: false, isWritable: true },
+          { pubkey: feeATA, isSigner: false, isWritable: true },
+          { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        ],
+        data,
+      });
+
+      const sig = await sendTx(ix);
+      if (sig) {
+        toast(`Arbitration complete! Tx: ${truncateAddress(sig)}`, 'success');
+        closeModal();
+        await loadEscrows();
+      }
+    } catch (err) {
+      console.error('Arbitrate error:', err);
+      toast(`Failed to arbitrate: ${err.message || err}`, 'error');
+    }
+  }
+
+  // ─── Arbitration Log (on-chain disputed/resolved) ───
   function renderArbitrations() {
     const log = document.getElementById('arbLog');
-    if (!MOCK_ARBITRATIONS.length) return;
+    const arbEscrows = escrows.filter(e => e.state === 'disputed' || e.state === 'resolved');
 
-    log.innerHTML = MOCK_ARBITRATIONS.map(a => `
+    if (!arbEscrows.length) {
+      log.innerHTML = `<div class="empty-state"><div class="icon">⚖️</div><p>No disputes found on-chain. That's a good thing!</p></div>`;
+      return;
+    }
+
+    log.innerHTML = arbEscrows.map(a => `
       <div class="arb-entry fade-in">
         <div class="arb-header">
-          <span class="arb-job-id">${a.jobId}</span>
-          <span class="arb-date">${new Date(a.date).toLocaleDateString()}</span>
+          <span class="arb-job-id">Escrow #${a.escrowId}</span>
+          <span class="arb-date">${new Date(a.createdAt).toLocaleDateString()}</span>
         </div>
-        <div class="arb-verdict verdict-${a.verdict}">
-          ${verdictIcon(a.verdict)} ${verdictText(a.verdict)}
-          <span style="font-weight:400;color:var(--text-muted);font-size:0.85rem;margin-left:8px;">${a.confidence}% confidence</span>
+        <div class="arb-verdict verdict-${a.state === 'resolved' ? 'worker' : 'poster'}">
+          ${a.state === 'disputed' ? '⏳ Awaiting arbitration' : '✅ Resolved'}
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.85rem;margin-left:8px;">$${(a.paymentAmount / 1e6).toLocaleString()} USDC</span>
         </div>
-        <div class="arb-reasoning">${a.reasoning}</div>
+        <div class="arb-reasoning">
+          Buyer: ${truncateAddress(a.buyer)} • Seller: ${truncateAddress(a.seller)}<br>
+          Arbitrator: ${truncateAddress(a.arbitrator)}
+        </div>
       </div>
     `).join('');
   }
 
-  function verdictIcon(v) {
-    return { poster: '🔵', worker: '🟢', split: '🟡' }[v] || '⚪';
-  }
-  function verdictText(v) {
-    return { poster: 'Funds returned to poster', worker: 'Funds released to worker', split: 'Funds split between parties' }[v] || 'Pending';
-  }
-
   // ─── Helpers ───
-  function categoryIcon(cat) {
-    return { data: '📊', code: '💻', content: '✍️', research: '🔬', trading: '📈', other: '🔧' }[cat] || '🔧';
-  }
-
-  function timeAgo(dateStr) {
-    const diff = Date.now() - new Date(dateStr).getTime();
+  function timeAgo(timestamp) {
+    if (!timestamp || timestamp <= 0) return 'unknown';
+    const diff = Date.now() - timestamp;
     const hours = Math.floor(diff / 3600000);
+    if (hours < 0) return 'just now';
     if (hours < 1) return 'just now';
     if (hours < 24) return `${hours}h ago`;
     return `${Math.floor(hours / 24)}d ago`;
   }
-
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   function navigateTo(sectionId) {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
@@ -403,12 +660,9 @@ const App = (() => {
   function initScrollAnimations() {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-        }
+        if (entry.isIntersecting) entry.target.classList.add('visible');
       });
     }, { threshold: 0.1 });
-
     document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
   }
 
@@ -416,7 +670,6 @@ const App = (() => {
   function initNavHighlight() {
     const sections = document.querySelectorAll('section[id]');
     const links = document.querySelectorAll('.nav-section-link');
-
     window.addEventListener('scroll', () => {
       let current = '';
       sections.forEach(s => {
@@ -430,17 +683,13 @@ const App = (() => {
 
   // ─── Init ───
   function init() {
-    loadEscrows();
-    renderArbitrations();
+    loadEscrows().then(() => renderArbitrations());
     initScrollAnimations();
     initNavHighlight();
 
-    // Close modal on overlay click
     document.getElementById('jobModal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) closeModal();
     });
-
-    // Close modal on Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeModal();
     });
@@ -451,7 +700,6 @@ const App = (() => {
     }
   }
 
-  // Boot
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
@@ -460,12 +708,11 @@ const App = (() => {
 
   // ─── Public API ───
   return {
-    connectWallet, postJob, acceptJob, deliverJob, approveJob, disputeJob,
+    connectWallet, postJob, acceptJob, deliverJob, approveJob, disputeJob, arbitrateJob,
     filterEscrows, openJob, closeModal, navigateTo, copyCode,
   };
 })();
 
-// Mobile nav toggle
 function toggleMobileNav() {
   document.getElementById('navLinks').classList.toggle('open');
 }
