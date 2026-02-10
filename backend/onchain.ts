@@ -1,18 +1,39 @@
 /**
  * On-chain operations for Clawscrow
- * Server-side signing for agent-to-agent transactions
+ * Uses raw instruction building (IDL has stale Ruling type)
  */
-import * as anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Connection, Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL,
+  Transaction, TransactionInstruction, sendAndConfirmTransaction, SYSVAR_RENT_PUBKEY
+} from "@solana/web3.js";
 import { createMint, createAccount, mintTo, getAccount, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 
 const DEVNET_URL = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || "7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7");
 
-// Load IDL
-const IDL = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/clawscrow.json"), "utf-8"));
+// Anchor discriminator = sha256("global:<method_name>")[0..8]
+function anchorDisc(name: string): Buffer {
+  return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
+}
+
+function encodeU64(n: bigint): Buffer {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(n);
+  return buf;
+}
+
+function encodeI64(n: bigint): Buffer {
+  const buf = Buffer.alloc(8);
+  buf.writeBigInt64LE(n);
+  return buf;
+}
+
+function encodeHash(input: string): Buffer {
+  return createHash("sha256").update(input).digest();
+}
 
 // Agent wallets managed by the server
 interface AgentWallet {
@@ -22,7 +43,6 @@ interface AgentWallet {
 
 const agentWallets: Map<string, AgentWallet> = new Map();
 let connection: Connection;
-let program: anchor.Program;
 let treasuryKeypair: Keypair;
 let usdcMint: PublicKey;
 let arbitratorKeypair: Keypair;
@@ -30,26 +50,36 @@ let initialized = false;
 
 export async function initOnChain(): Promise<void> {
   if (initialized) return;
-  
-  connection = new Connection(DEVNET_URL, "confirmed");
-  
-  // Treasury keypair (deployer) — funds new agent wallets
-  const treasuryPath = process.env.TREASURY_KEYPAIR || path.join(process.env.HOME || "", ".config/solana/id.json");
-  if (fs.existsSync(treasuryPath)) {
-    treasuryKeypair = Keypair.fromSecretKey(
-      Uint8Array.from(JSON.parse(fs.readFileSync(treasuryPath, "utf-8")))
-    );
-    console.log("  Treasury:", treasuryKeypair.publicKey.toBase58());
-  } else {
-    treasuryKeypair = Keypair.generate();
-    console.log("  ⚠️ No treasury keypair found, generated ephemeral:", treasuryKeypair.publicKey.toBase58());
-  }
 
-  // Setup Anchor provider
-  const wallet = new anchor.Wallet(treasuryKeypair);
-  const provider = new anchor.AnchorProvider(connection, wallet, { commitment: "confirmed" });
-  anchor.setProvider(provider);
-  program = new anchor.Program(IDL, provider);
+  connection = new Connection(DEVNET_URL, "confirmed");
+
+  // Treasury keypair — try env first (JSON array), then file path
+  const envKey = process.env.TREASURY_KEYPAIR;
+  if (envKey) {
+    try {
+      // Could be JSON array or file path
+      if (envKey.startsWith("[")) {
+        treasuryKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(envKey)));
+      } else if (fs.existsSync(envKey)) {
+        treasuryKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(envKey, "utf-8"))));
+      } else {
+        treasuryKeypair = Keypair.generate();
+        console.log("  ⚠️ TREASURY_KEYPAIR invalid, generated ephemeral");
+      }
+    } catch {
+      treasuryKeypair = Keypair.generate();
+      console.log("  ⚠️ TREASURY_KEYPAIR parse error, generated ephemeral");
+    }
+  } else {
+    const defaultPath = path.join(process.env.HOME || "", ".config/solana/id.json");
+    if (fs.existsSync(defaultPath)) {
+      treasuryKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(defaultPath, "utf-8"))));
+    } else {
+      treasuryKeypair = Keypair.generate();
+      console.log("  ⚠️ No treasury keypair found, generated ephemeral");
+    }
+  }
+  console.log("  Treasury:", treasuryKeypair.publicKey.toBase58());
 
   // Arbitrator keypair
   arbitratorKeypair = Keypair.generate();
@@ -69,15 +99,21 @@ export async function initOnChain(): Promise<void> {
 }
 
 async function fundWallet(pubkey: PublicKey, solAmount: number): Promise<void> {
-  const tx = new anchor.web3.Transaction().add(
+  const tx = new Transaction().add(
     SystemProgram.transfer({
       fromPubkey: treasuryKeypair.publicKey,
       toPubkey: pubkey,
       lamports: Math.floor(solAmount * LAMPORTS_PER_SOL),
     })
   );
-  const provider = anchor.getProvider() as anchor.AnchorProvider;
-  await provider.sendAndConfirm(tx);
+  await sendAndConfirmTransaction(connection, tx, [treasuryKeypair]);
+}
+
+function deriveEscrowPDA(escrowId: bigint): [PublicKey, PublicKey] {
+  const idBuf = encodeU64(escrowId);
+  const [escrowPda] = PublicKey.findProgramAddressSync([Buffer.from("escrow"), idBuf], PROGRAM_ID);
+  const [vaultPda] = PublicKey.findProgramAddressSync([Buffer.from("vault"), idBuf], PROGRAM_ID);
+  return [escrowPda, vaultPda];
 }
 
 export async function registerAgent(agentId: string): Promise<{ publicKey: string; funded: boolean }> {
@@ -87,11 +123,10 @@ export async function registerAgent(agentId: string): Promise<{ publicKey: strin
   }
 
   const kp = Keypair.generate();
-  await fundWallet(kp.publicKey, 0.02); // 0.02 SOL for gas + PDA rent
+  await fundWallet(kp.publicKey, 0.02);
 
-  // Create USDC token account and mint test tokens
   const tokenAccount = await createAccount(connection, treasuryKeypair, usdcMint, kp.publicKey);
-  await mintTo(connection, treasuryKeypair, usdcMint, tokenAccount, treasuryKeypair.publicKey, 100_000); // 0.1 USDC
+  await mintTo(connection, treasuryKeypair, usdcMint, tokenAccount, treasuryKeypair.publicKey, 10_000_000); // 10 USDC
 
   agentWallets.set(agentId, { keypair: kp, tokenAccount });
   console.log(`  Agent ${agentId} registered:`, kp.publicKey.toBase58());
@@ -102,18 +137,6 @@ function getAgent(agentId: string): AgentWallet {
   const w = agentWallets.get(agentId);
   if (!w) throw new Error(`Agent ${agentId} not registered. Call POST /api/agents/register first.`);
   return w;
-}
-
-function deriveEscrowPDA(escrowId: anchor.BN): [PublicKey, PublicKey] {
-  const [escrowPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("escrow"), escrowId.toArrayLike(Buffer, "le", 8)],
-    PROGRAM_ID
-  );
-  const [vaultPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), escrowId.toArrayLike(Buffer, "le", 8)],
-    PROGRAM_ID
-  );
-  return [escrowPda, vaultPda];
 }
 
 export interface EscrowResult {
@@ -131,106 +154,115 @@ export async function createEscrow(
   sellerCollateral: number,
 ): Promise<EscrowResult> {
   const buyer = getAgent(buyerAgentId);
-  const escrowId = new anchor.BN(Date.now());
+  const escrowId = BigInt(Date.now());
   const [escrowPda, vaultPda] = deriveEscrowPDA(escrowId);
-  const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 86400);
+  const descHash = encodeHash(description);
 
-  // Need a buyer token account with enough USDC
-  const buyerToken = buyer.tokenAccount!;
-
-  // Mint extra if needed
-  const balance = (await getAccount(connection, buyerToken)).amount;
+  // Ensure buyer has enough USDC
+  const balance = (await getAccount(connection, buyer.tokenAccount!)).amount;
   const needed = BigInt(paymentAmount + buyerCollateral);
   if (balance < needed) {
-    await mintTo(connection, treasuryKeypair, usdcMint, buyerToken, treasuryKeypair.publicKey, Number(needed - balance) + 1000);
+    await mintTo(connection, treasuryKeypair, usdcMint, buyer.tokenAccount!, treasuryKeypair.publicKey, Number(needed - balance) + 1000);
   }
 
-  const tx = await program.methods
-    .createEscrow(
-      escrowId,
-      description,
-      new anchor.BN(paymentAmount),
-      new anchor.BN(buyerCollateral),
-      new anchor.BN(sellerCollateral),
-      deadline
-    )
-    .accounts({
-      buyer: buyer.keypair.publicKey,
-      escrow: escrowPda,
-      vault: vaultPda,
-      buyerToken,
-      usdcMint,
-      arbitrator: arbitratorKeypair.publicKey,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-      rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-    })
-    .signers([buyer.keypair])
-    .rpc();
+  const data = Buffer.concat([
+    anchorDisc("create_escrow"),
+    encodeU64(escrowId),
+    descHash,
+    encodeU64(BigInt(paymentAmount)),
+    encodeU64(BigInt(buyerCollateral)),
+    encodeU64(BigInt(sellerCollateral)),
+    encodeI64(deadline),
+  ]);
 
-  return { escrowId: escrowId.toString(), escrowPda: escrowPda.toBase58(), txSignature: tx, state: "created" };
+  const ix = new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: buyer.keypair.publicKey, isSigner: true, isWritable: true },
+      { pubkey: escrowPda, isSigner: false, isWritable: true },
+      { pubkey: vaultPda, isSigner: false, isWritable: true },
+      { pubkey: buyer.tokenAccount!, isSigner: false, isWritable: true },
+      { pubkey: usdcMint, isSigner: false, isWritable: false },
+      { pubkey: arbitratorKeypair.publicKey, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [buyer.keypair]);
+
+  return { escrowId: escrowId.toString(), escrowPda: escrowPda.toBase58(), txSignature: sig, state: "created" };
 }
 
 export async function acceptEscrow(sellerAgentId: string, escrowId: string): Promise<EscrowResult> {
   const seller = getAgent(sellerAgentId);
-  const eid = new anchor.BN(escrowId);
+  const eid = BigInt(escrowId);
   const [escrowPda, vaultPda] = deriveEscrowPDA(eid);
 
-  // Get escrow to check seller collateral needed
-  const escrowData = await program.account.escrow.fetch(escrowPda);
-  const sellerCol = (escrowData as any).sellerCollateral.toNumber();
-
-  // Ensure seller has enough USDC
+  // Ensure seller has enough USDC for collateral
   const balance = (await getAccount(connection, seller.tokenAccount!)).amount;
-  if (balance < BigInt(sellerCol)) {
-    await mintTo(connection, treasuryKeypair, usdcMint, seller.tokenAccount!, treasuryKeypair.publicKey, sellerCol + 1000);
+  if (balance < 1_000_000n) { // top up if low
+    await mintTo(connection, treasuryKeypair, usdcMint, seller.tokenAccount!, treasuryKeypair.publicKey, 10_000_000);
   }
 
-  const tx = await program.methods
-    .acceptEscrow(eid)
-    .accounts({
-      seller: seller.keypair.publicKey,
-      escrow: escrowPda,
-      vault: vaultPda,
-      sellerToken: seller.tokenAccount!,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .signers([seller.keypair])
-    .rpc();
+  const data = Buffer.concat([anchorDisc("accept_escrow"), encodeU64(eid)]);
 
-  return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: tx, state: "accepted" };
+  const ix = new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: seller.keypair.publicKey, isSigner: true, isWritable: true },
+      { pubkey: escrowPda, isSigner: false, isWritable: true },
+      { pubkey: vaultPda, isSigner: false, isWritable: true },
+      { pubkey: seller.tokenAccount!, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [seller.keypair]);
+
+  return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: sig, state: "accepted" };
 }
 
 export async function deliverEscrow(sellerAgentId: string, escrowId: string, contentHash: string): Promise<EscrowResult> {
   const seller = getAgent(sellerAgentId);
-  const eid = new anchor.BN(escrowId);
+  const eid = BigInt(escrowId);
   const [escrowPda] = deriveEscrowPDA(eid);
 
-  // Convert content hash to 32 bytes
-  const hashBytes = Array.from(Buffer.from(contentHash.padEnd(32, '\0'), 'utf-8').slice(0, 32));
+  const deliveryHash = encodeHash(contentHash);
+  const data = Buffer.concat([anchorDisc("deliver"), deliveryHash]);
 
-  const tx = await program.methods
-    .deliver(hashBytes)
-    .accounts({
-      seller: seller.keypair.publicKey,
-      escrow: escrowPda,
-    })
-    .signers([seller.keypair])
-    .rpc();
+  const ix = new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: seller.keypair.publicKey, isSigner: true, isWritable: true },
+      { pubkey: escrowPda, isSigner: false, isWritable: true },
+    ],
+    data,
+  });
 
-  return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: tx, state: "delivered" };
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [seller.keypair]);
+
+  return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: sig, state: "delivered" };
 }
 
 export async function approveEscrow(buyerAgentId: string, escrowId: string): Promise<EscrowResult> {
   const buyer = getAgent(buyerAgentId);
-  const eid = new anchor.BN(escrowId);
+  const eid = BigInt(escrowId);
   const [escrowPda, vaultPda] = deriveEscrowPDA(eid);
 
-  // Get escrow data for seller token
-  const escrowData = await program.account.escrow.fetch(escrowPda);
-  const sellerPubkey = (escrowData as any).seller as PublicKey;
+  // Read escrow data to find seller token account
+  const escrowInfo = await connection.getAccountInfo(new PublicKey(deriveEscrowPDA(eid)[0]));
+  if (!escrowInfo) throw new Error("Escrow not found on chain");
+  const sellerPubkey = new PublicKey(escrowInfo.data.subarray(48, 80));
 
-  // Find seller's agent wallet
+  // Find seller's token account
   let sellerToken: PublicKey | undefined;
   for (const [, w] of agentWallets) {
     if (w.keypair.publicKey.equals(sellerPubkey)) {
@@ -240,28 +272,69 @@ export async function approveEscrow(buyerAgentId: string, escrowId: string): Pro
   }
   if (!sellerToken) throw new Error("Seller token account not found");
 
-  const tx = await program.methods
-    .approve(eid)
-    .accounts({
-      signer: buyer.keypair.publicKey,
-      escrow: escrowPda,
-      vault: vaultPda,
-      buyerToken: buyer.tokenAccount!,
-      sellerToken,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .signers([buyer.keypair])
-    .rpc();
+  const data = Buffer.concat([anchorDisc("approve"), encodeU64(eid)]);
 
-  return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: tx, state: "approved" };
+  const ix = new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: buyer.keypair.publicKey, isSigner: true, isWritable: true },
+      { pubkey: escrowPda, isSigner: false, isWritable: true },
+      { pubkey: vaultPda, isSigner: false, isWritable: true },
+      { pubkey: buyer.tokenAccount!, isSigner: false, isWritable: true },
+      { pubkey: sellerToken, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [buyer.keypair]);
+
+  return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: sig, state: "approved" };
 }
 
 export async function getEscrowOnChain(escrowId: string): Promise<any> {
-  const eid = new anchor.BN(escrowId);
+  const eid = BigInt(escrowId);
   const [escrowPda] = deriveEscrowPDA(eid);
   try {
-    return await program.account.escrow.fetch(escrowPda);
+    const info = await connection.getAccountInfo(escrowPda);
+    if (!info) return null;
+    const d = info.data;
+    const stateMap: Record<number, string> = { 0: "created", 1: "accepted", 2: "delivered", 3: "approved", 4: "disputed", 5: "resolved" };
+    return {
+      escrowId: d.readBigUInt64LE(8).toString(),
+      buyer: new PublicKey(d.subarray(16, 48)).toBase58(),
+      seller: new PublicKey(d.subarray(48, 80)).toBase58(),
+      arbitrator: new PublicKey(d.subarray(80, 112)).toBase58(),
+      mint: new PublicKey(d.subarray(112, 144)).toBase58(),
+      paymentAmount: Number(d.readBigUInt64LE(144)),
+      buyerCollateral: Number(d.readBigUInt64LE(152)),
+      sellerCollateral: Number(d.readBigUInt64LE(160)),
+      state: stateMap[d[168]] || `unknown(${d[168]})`,
+    };
   } catch {
     return null;
   }
+}
+
+// List all escrows from chain
+export async function listEscrowsOnChain(): Promise<any[]> {
+  const accounts = await connection.getProgramAccounts(PROGRAM_ID);
+  const stateMap: Record<number, string> = { 0: "created", 1: "accepted", 2: "delivered", 3: "approved", 4: "disputed", 5: "resolved" };
+  return accounts
+    .filter(a => a.account.data.length === 699)
+    .map(a => {
+      const d = a.account.data;
+      return {
+        escrowId: d.readBigUInt64LE(8).toString(),
+        pda: a.pubkey.toBase58(),
+        buyer: new PublicKey(d.subarray(16, 48)).toBase58(),
+        seller: new PublicKey(d.subarray(48, 80)).toBase58(),
+        mint: new PublicKey(d.subarray(112, 144)).toBase58(),
+        paymentAmount: Number(d.readBigUInt64LE(144)),
+        buyerCollateral: Number(d.readBigUInt64LE(152)),
+        sellerCollateral: Number(d.readBigUInt64LE(160)),
+        state: stateMap[d[168]] || `unknown(${d[168]})`,
+      };
+    });
 }

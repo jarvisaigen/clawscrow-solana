@@ -246,6 +246,12 @@ const server = createServer(async (req, res) => {
           "PUT /api/jobs/:id/accept": "Mark job as accepted",
           "PUT /api/jobs/:id/deliver": "Upload delivery + mark delivered",
           "PUT /api/jobs/:id/dispute": "Trigger AI arbitration",
+          "POST /api/agents/register": "Register an agent (creates wallet, funds SOL+USDC)",
+          "POST /api/escrows/create": "Create escrow on-chain (buyerAgentId, description, paymentAmount, buyerCollateral, sellerCollateral)",
+          "POST /api/escrows/accept": "Accept escrow on-chain (sellerAgentId, escrowId)",
+          "POST /api/escrows/deliver": "Deliver work on-chain (sellerAgentId, escrowId, contentHash)",
+          "POST /api/escrows/approve": "Approve & release on-chain (buyerAgentId, escrowId)",
+          "GET /api/escrows": "List all escrows from chain",
           "POST /api/files": "Upload file (optional ECIES encryption with encryptForPubKey)",
           "GET /api/files": "List files (?escrowId= to filter)",
           "GET /api/files/:fileId": "Get file metadata (add ?raw=true for binary download)",
@@ -503,6 +509,65 @@ const server = createServer(async (req, res) => {
       const meta = getFileMeta(fileId);
       if (!meta) return json(res, { error: "File not found" }, 404);
       return json(res, { file: meta });
+    }
+
+    // === ON-CHAIN AGENT ENDPOINTS ===
+    if (pathname === "/api/agents/register" && req.method === "POST") {
+      const { initOnChain, registerAgent } = await import("./onchain");
+      await initOnChain();
+      const body = await parseBody(req);
+      if (!body.agentId) return json(res, { error: "Missing agentId" }, 400);
+      const result = await registerAgent(body.agentId);
+      return json(res, { ok: true, ...result });
+    }
+
+    if (pathname === "/api/escrows/create" && req.method === "POST") {
+      const { initOnChain, createEscrow } = await import("./onchain");
+      await initOnChain();
+      const body = await parseBody(req);
+      if (!body.buyerAgentId || !body.description) return json(res, { error: "Missing buyerAgentId or description" }, 400);
+      const result = await createEscrow(
+        body.buyerAgentId,
+        body.description,
+        body.paymentAmount || 1_000_000,
+        body.buyerCollateral || 100_000,
+        body.sellerCollateral || 50_000,
+      );
+      return json(res, { ok: true, ...result });
+    }
+
+    if (pathname === "/api/escrows/accept" && req.method === "POST") {
+      const { initOnChain, acceptEscrow } = await import("./onchain");
+      await initOnChain();
+      const body = await parseBody(req);
+      if (!body.sellerAgentId || !body.escrowId) return json(res, { error: "Missing sellerAgentId or escrowId" }, 400);
+      const result = await acceptEscrow(body.sellerAgentId, body.escrowId);
+      return json(res, { ok: true, ...result });
+    }
+
+    if (pathname === "/api/escrows/deliver" && req.method === "POST") {
+      const { initOnChain, deliverEscrow } = await import("./onchain");
+      await initOnChain();
+      const body = await parseBody(req);
+      if (!body.sellerAgentId || !body.escrowId) return json(res, { error: "Missing sellerAgentId or escrowId" }, 400);
+      const result = await deliverEscrow(body.sellerAgentId, body.escrowId, body.contentHash || "delivery");
+      return json(res, { ok: true, ...result });
+    }
+
+    if (pathname === "/api/escrows/approve" && req.method === "POST") {
+      const { initOnChain, approveEscrow } = await import("./onchain");
+      await initOnChain();
+      const body = await parseBody(req);
+      if (!body.buyerAgentId || !body.escrowId) return json(res, { error: "Missing buyerAgentId or escrowId" }, 400);
+      const result = await approveEscrow(body.buyerAgentId, body.escrowId);
+      return json(res, { ok: true, ...result });
+    }
+
+    if (pathname === "/api/escrows" && req.method === "GET") {
+      const { initOnChain, listEscrowsOnChain } = await import("./onchain");
+      await initOnChain();
+      const escrows = await listEscrowsOnChain();
+      return json(res, { escrows, count: escrows.length, source: "chain" });
     }
 
     // === HEALTH ===
