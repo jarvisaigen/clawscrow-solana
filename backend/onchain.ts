@@ -7,6 +7,7 @@ import { Connection, Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from 
 import { createMint, createAccount, mintTo, getAccount, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import * as fs from "fs";
 import * as path from "path";
+import { saveWallets, loadWallets } from "./persistence";
 
 const DEVNET_URL = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || "7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7");
@@ -117,6 +118,12 @@ export async function initOnChain(): Promise<void> {
     }
   }
 
+  // Load persisted wallets
+  const saved = loadWallets();
+  for (const [id, w] of saved) {
+    if (!agentWallets.has(id)) agentWallets.set(id, w);
+  }
+
   initialized = true;
   console.log("  ✅ On-chain initialized");
 }
@@ -147,6 +154,7 @@ export async function registerAgent(agentId: string): Promise<{ publicKey: strin
   await mintTo(connection, treasuryKeypair, usdcMint, tokenAccount, treasuryKeypair.publicKey, 100_000); // 0.1 USDC
 
   agentWallets.set(agentId, { keypair: kp, tokenAccount });
+  saveWallets(agentWallets);
   console.log(`  Agent ${agentId} registered:`, kp.publicKey.toBase58());
   return { publicKey: kp.publicKey.toBase58(), funded: true };
 }

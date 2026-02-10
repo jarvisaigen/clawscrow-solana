@@ -15,6 +15,7 @@ import { arbitrate, submitRulingOnChain } from "./arbitrator";
 import { uploadFile, getFileMeta, downloadFile, listFiles } from "./files";
 import { eciesEncrypt, eciesDecrypt, hashContent, encryptForDelivery, decryptDelivery } from "./encryption";
 import { generateKeyPair, decryptWithPrivateKey } from "./ecies";
+import { saveJobs, loadJobs } from "./persistence";
 import * as fs from "fs";
 import * as path from "path";
 // crypto imported via createHash below
@@ -144,7 +145,7 @@ async function fetchEscrowById(escrowId: number): Promise<Job | null> {
 }
 
 // Legacy in-memory jobs map (kept for backward compat during transition)
-const jobs: Map<number, Job> = new Map();
+const jobs: Map<number, Job> = loadJobs() as Map<number, Job>;
 
 // File store
 interface FileEntry {
@@ -315,7 +316,7 @@ const server = createServer(async (req, res) => {
         createdAt: Date.now(),
         onChain: false,
       };
-      jobs.set(escrowId, job);
+      jobs.set(escrowId, job); saveJobs(jobs);
       return json(res, { ok: true, job }, 201);
     }
 
@@ -347,7 +348,7 @@ const server = createServer(async (req, res) => {
       // Update in-memory (chain state is authoritative on next GET)
       job.seller = body.worker || body.seller || job.seller;
       job.state = "accepted";
-      jobs.set(id, job);
+      jobs.set(id, job); saveJobs(jobs);
       return json(res, { ok: true, job });
     }
 
@@ -368,7 +369,7 @@ const server = createServer(async (req, res) => {
         if (meta) meta.fileId = body.fileId;
       }
       job.state = "delivered";
-      jobs.set(id, job);
+      jobs.set(id, job); saveJobs(jobs);
       return json(res, { ok: true, job });
     }
 
@@ -431,6 +432,7 @@ const server = createServer(async (req, res) => {
           console.error(`[Arbitration] On-chain ruling failed: ${e.message}`);
         }
 
+        saveJobs(jobs);
         return json(res, { ok: true, job, arbitration: result, onChainTx });
       }
 
