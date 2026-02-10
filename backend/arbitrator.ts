@@ -46,73 +46,71 @@ async function callArbitrator(
   sellerArgument: string,
   deliveryContent: string
 ): Promise<ArbitrationResult> {
-  const systemPrompt = `You are a senior arbitrator for Clawscrow, a trustless escrow platform where AI agents hire each other using USDC on Solana. Your rulings are final, on-chain, and irreversible — real money moves based on your decision.
+  const systemPrompt = `You are a senior arbitrator for Clawscrow, a trustless AI agent escrow protocol on Solana. You resolve payment disputes between AI agents with the authority and rigor of a commercial arbitration tribunal.
 
 ## Your Role
-You are the judge. You must be rigorous, fair, and thorough. Both parties have locked collateral; the loser forfeits theirs. There is no appeal.
+You are the SOLE decision-maker. Your ruling is final, binding, and executed on-chain automatically. There is no appeal. This means you must be thorough, fair, and precise.
 
-## Decision Framework
+## Decision Framework (apply in order)
 
-Evaluate the dispute through these lenses, in order of importance:
+### Step 1: Contract Compliance
+Parse the job description as a contract. Identify every explicit requirement:
+- Specific deliverables (format, length, content type)
+- Quantitative criteria (word count, number of items, specific data points)
+- Qualitative criteria (technical depth, accuracy, relevance)
+- Implicit professional standards (coherent writing, factual accuracy, no plagiarism)
 
-### 1. Specification Compliance (Weight: 40%)
-- Did the delivery match what was explicitly requested in the job description?
-- Were specific requirements met (format, length, topic, technical specs)?
-- A delivery that ignores explicit requirements fails regardless of quality.
+### Step 2: Delivery Analysis
+Examine the delivered content against each identified requirement:
+- Was each explicit requirement met? (binary per requirement)
+- For quantitative requirements: measure precisely (count words, items, etc.)
+- For qualitative requirements: assess against reasonable professional standards
+- Is the content original, coherent, and genuine work product?
 
-### 2. Quality & Substance (Weight: 30%)
-- Is the delivered work substantive and professionally adequate?
-- Does it demonstrate genuine effort and competence?
-- Would a reasonable client accept this as fulfilling the contract?
+### Step 3: Good Faith Assessment
+- Did the seller make a genuine attempt to fulfill the contract?
+- Is the buyer's dispute legitimate or frivolous?
+- Are there signs of bad faith from either party? (e.g., impossibly vague specs used to reject good work, or seller submitting garbage)
 
-### 3. Good Faith & Effort (Weight: 20%)
-- Did the seller make a genuine attempt to fulfill the job?
-- Is there evidence of bad faith (spam, plagiarism, irrelevant content, gaming)?
-- Did the buyer set clear, achievable requirements?
+### Step 4: Proportionality
+- If the delivery meets most but not all requirements, how material are the gaps?
+- A minor formatting issue ≠ total failure
+- Missing core deliverables = material breach
+- Wrong topic entirely = clear seller failure
 
-### 4. Proportionality (Weight: 10%)
-- Is the payment amount proportional to what was delivered?
-- For low-value jobs, minor imperfections should be tolerated.
-- For high-value jobs, higher standards apply.
-
-## Edge Cases
-- If the job description is ambiguous, give the seller benefit of the doubt.
-- If the delivery is partially correct, consider whether the gap justifies full refund.
-- If both parties acted in bad faith, rule for the buyer (funds return to origin).
-- A technically correct but clearly low-effort delivery can still lose.
+## Ruling Standards
+- **BuyerWins** if: delivery fails to meet material requirements, is off-topic, is significantly below specified standards, or seller acted in bad faith
+- **SellerWins** if: delivery substantially fulfills the contract, buyer's complaints are immaterial or subjective preferences beyond the spec, or buyer is acting in bad faith
+- **Confidence** 0.0-1.0: reflects how clear-cut the case is. 1.0 = obvious (e.g., empty delivery). 0.5-0.7 = legitimate arguments on both sides. <0.5 should not occur (pick the stronger side).
 
 ## Output Format
-Think carefully through the evidence. Then respond with ONLY this JSON:
-{"ruling": "BuyerWins" | "SellerWins", "confidence": 0.0-1.0, "reasoning": "2-4 sentences explaining your decision, referencing specific evidence"}
+Respond ONLY with valid JSON:
+{"ruling": "BuyerWins" or "SellerWins", "confidence": 0.0-1.0, "reasoning": "2-4 sentence explanation citing specific evidence from the delivery and requirements"}`;
 
-Confidence guide:
-- 1.0 = slam dunk, no reasonable person would disagree
-- 0.8-0.9 = clear case with minor ambiguity
-- 0.6-0.7 = reasonable arguments on both sides, but one is stronger
-- 0.5-0.6 = very close call, could go either way`;
+  const paymentDisplay = escrow.paymentAmount >= 1_000_000 
+    ? `${escrow.paymentAmount / 1_000_000} USDC` 
+    : `${escrow.paymentAmount} USDC (raw units)`;
 
-  const userPrompt = `## Escrow Dispute #${escrow.escrowId}
+  const userPrompt = `# DISPUTE — Escrow #${escrow.escrowId}
 
-**Payment at stake:** ${escrow.paymentAmount / 1_000_000} USDC
-**On-chain delivery hash:** ${escrow.deliveryHash}
-
----
-
-### JOB DESCRIPTION (what was requested):
+## Contract (Job Description)
 ${escrow.description}
 
-### BUYER'S DISPUTE ARGUMENT:
+## Payment at Stake
+${paymentDisplay}
+
+## Buyer's Complaint
 ${buyerArgument}
 
-### SELLER'S DEFENSE:
+## Seller's Defense
 ${sellerArgument}
 
-### ACTUAL DELIVERED CONTENT:
+## Evidence: Delivered Content
+---BEGIN DELIVERY---
 ${deliveryContent}
+---END DELIVERY---
 
----
-
-Analyze the evidence and deliver your ruling.`;
+Analyze the contract requirements, evaluate the delivery against each one, and issue your ruling as JSON.`;
 
   let response: ArbitrationResult;
 
@@ -146,7 +144,7 @@ async function callClaude(apiKey: string, system: string, user: string, model: s
     },
     body: JSON.stringify({
       model: "claude-opus-4-6",
-      max_tokens: 2048,
+      max_tokens: 500,
       system,
       messages: [{ role: "user", content: user }],
     }),
@@ -169,7 +167,7 @@ async function callOpenAI(apiKey: string, system: string, user: string, model: s
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 2048,
+      max_tokens: 500,
     }),
   });
   const data = await res.json() as any;
@@ -207,7 +205,6 @@ async function callGrok(apiKey: string, system: string, user: string, model: str
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
-      ...(isOpenRouter ? { "HTTP-Referer": "https://clawscrow.ai", "X-Title": "Clawscrow Arbitrator" } : {}),
     },
     body: JSON.stringify({
       model: modelId,
@@ -215,12 +212,19 @@ async function callGrok(apiKey: string, system: string, user: string, model: str
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 4096,  // Allow room for reasoning/thinking tokens
+      max_tokens: 2000,
+      // Enable thinking/reasoning for deeper analysis
+      ...(isOpenRouter ? {
+        reasoning: { effort: "high" },
+      } : {}),
     }),
   });
   const data = await res.json() as any;
   const text = data.choices?.[0]?.message?.content || "";
-  console.log(`[Grok] Response length: ${text.length}, reasoning_tokens: ${data.usage?.completion_tokens_details?.reasoning_tokens || 'N/A'}`);
+  const thinking = data.choices?.[0]?.message?.reasoning_content || data.choices?.[0]?.message?.reasoning || "";
+  if (thinking) {
+    console.log(`[Grok thinking]: ${thinking.slice(0, 500)}...`);
+  }
   return parseRuling(text, model);
 }
 
@@ -244,7 +248,7 @@ function parseRuling(text: string, model: string): ArbitrationResult {
   const ruling = lower.includes("sellerwins") || lower.includes("seller wins")
     ? "SellerWins" : "BuyerWins";
   
-  return { model, ruling, confidence: 0.5, reasoning: text.slice(0, 200) };
+  return { model, ruling, confidence: 0.5, reasoning: text.slice(0, 500) };
 }
 
 /**

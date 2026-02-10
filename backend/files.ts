@@ -36,14 +36,30 @@ export interface FileMeta {
  * Upload a file. Optionally encrypts with recipient's public key.
  */
 export function uploadFile(params: {
-  content: string;           // base64-encoded file content
+  content: string;           // base64-encoded or plain text file content
+  encoding?: "base64" | "utf8"; // default: auto-detect
   filename?: string;
   contentType?: string;
   escrowId?: number;
   uploadedBy?: string;
   encryptForPubKey?: string; // If provided, ECIES-encrypt for this public key
 }): { fileId: string; contentHash: string; meta: FileMeta } {
-  const raw = Buffer.from(params.content, "base64");
+  // Auto-detect encoding: if content looks like valid base64, decode it; otherwise treat as UTF-8
+  let raw: Buffer;
+  if (params.encoding === "base64") {
+    raw = Buffer.from(params.content, "base64");
+  } else if (params.encoding === "utf8") {
+    raw = Buffer.from(params.content, "utf8");
+  } else {
+    // Auto-detect: try base64, check if it round-trips
+    const b64decoded = Buffer.from(params.content, "base64");
+    const roundTrip = b64decoded.toString("base64");
+    if (roundTrip === params.content && /^[A-Za-z0-9+/=]+$/.test(params.content)) {
+      raw = b64decoded;
+    } else {
+      raw = Buffer.from(params.content, "utf8");
+    }
+  }
 
   // Hash original plaintext for on-chain verification
   const contentHash = crypto.createHash("sha256").update(raw).digest("hex");
