@@ -197,15 +197,20 @@ const App = (() => {
         const rulingsData = await rulingsRes.json();
         const rulings = rulingsData.rulings || [];
         if (rulings.length > 0) {
-          decisions = rulings.map(r => ({
-            escrowId: r.escrowId,
-            date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '',
-            verdict: r.finalRuling?.toLowerCase().includes('buyer') ? 'buyer' : 'seller',
-            amount: (r.paymentAmount || 0) / 1e6,
-            reasoning: r.reasoning || r.analysis || '',
-            confidence: r.confidence || null,
-            model: r.model || 'Grok 4.1',
-          }));
+          decisions = rulings.map(r => {
+            const ruling = r.ruling || {};
+            return {
+              escrowId: r.escrowId,
+              date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '',
+              verdict: (ruling.finalRuling || r.finalRuling || '').toLowerCase().includes('buyer') ? 'buyer' : 'seller',
+              amount: (ruling.paymentAmount || r.paymentAmount || 0) / 1e6,
+              reasoning: ruling.reasoning || ruling.analysis || r.reasoning || r.analysis || '',
+              confidence: ruling.confidence || r.confidence || null,
+              model: ruling.model || r.model || 'Grok 4.1',
+              buyerArgument: r.buyerArgument || '',
+              sellerArgument: r.sellerArgument || '',
+            };
+          });
         }
       }
       // Fallback: get from jobs if no rulings endpoint
@@ -309,8 +314,8 @@ const App = (() => {
       el.innerHTML = `<p class="empty-state">No disputes resolved yet</p>`;
       return;
     }
-    el.innerHTML = filtered.map((d, i) => `
-      <div class="decision-row" onclick="App.toggleDecision(${i})" style="cursor:pointer">
+    el.innerHTML = filtered.map(d => `
+      <div class="decision-row" style="cursor:pointer" onclick="this.querySelector('.decision-details').classList.toggle('hidden')">
         <div class="decision-header">
           <span class="decision-id">Escrow #${d.escrowId}</span>
           <span class="decision-verdict ${d.verdict === 'buyer' ? 'verdict-buyer' : 'verdict-seller'}">${d.verdict === 'buyer' ? '✗ Buyer Wins' : '✓ Seller Wins'}</span>
@@ -319,9 +324,12 @@ const App = (() => {
           <span class="decision-date">${d.date}</span>
           <span style="margin-left:auto;font-size:0.8rem">▼</span>
         </div>
-        <div class="decision-detail" id="decision-detail-${i}" style="display:none;margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border)">
-          ${d.model ? `<div style="font-size:0.75rem;color:var(--accent);margin-bottom:0.25rem">🤖 ${d.model}</div>` : ''}
-          ${d.reasoning ? `<div class="decision-reasoning">${d.reasoning}</div>` : '<div class="decision-reasoning" style="color:var(--text-muted)">Reasoning not available (pre-persistence ruling)</div>'}
+        <div class="decision-details hidden" onclick="event.stopPropagation()">
+          ${d.buyerArgument ? `<div style="margin:0.5rem 0;padding:0.5rem;background:rgba(255,100,100,0.1);border-radius:6px"><strong>Buyer's Argument:</strong><br>${d.buyerArgument}</div>` : ''}
+          ${d.sellerArgument ? `<div style="margin:0.5rem 0;padding:0.5rem;background:rgba(100,255,100,0.1);border-radius:6px"><strong>Seller's Argument:</strong><br>${d.sellerArgument}</div>` : ''}
+          ${d.model ? `<div style="margin:0.5rem 0;font-size:0.85rem;color:var(--accent)">🤖 Arbitrator: ${d.model}</div>` : ''}
+          ${d.reasoning ? `<div class="decision-reasoning" style="margin:0.5rem 0;padding:0.75rem;background:rgba(255,255,255,0.05);border-radius:6px;border-left:3px solid var(--accent)"><strong>⚖️ Grok's Analysis:</strong><br><br>${d.reasoning}</div>` : '<div class="decision-reasoning" style="color:var(--text-muted);padding:0.5rem">No reasoning available (pre-persistence ruling)</div>'}
+          ${d.confidence ? `<div style="margin:0.5rem 0;font-size:0.9rem"><strong>Confidence:</strong> ${(d.confidence * 100).toFixed(0)}%</div>` : ''}
         </div>
       </div>
     `).join('');
@@ -332,10 +340,7 @@ const App = (() => {
     renderEscrows();
   }
 
-  function toggleDecision(idx) {
-    const el = document.getElementById(`decision-detail-${idx}`);
-    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-  }
+  // toggleDecision removed — using inline classList.toggle
 
   function filterDecisions() {
     const filter = document.getElementById('decisionFilter')?.value || 'all';
@@ -822,6 +827,7 @@ const App = (() => {
   return {
     connectWallet, showCreateForm, acceptJob, deliverJob, submitDelivery,
     approveJob, disputeJob, filterEscrows, openJob, closeModal,
-    copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows, toggleDecision,
+    copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows,
   };
 })();
+/* rebuild 1770748757 */
