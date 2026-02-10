@@ -212,8 +212,8 @@ const App = (() => {
   }
 
   // ─── Job Modal ───
-  function openJob(pubkey) {
-    const job = escrows.find(e => e.pubkey === pubkey);
+  async function openJob(pubkey) {
+    const job = escrows.find(e => e.pubkey === pubkey || e.escrowId == pubkey);
     if (!job) return;
     const modal = document.getElementById('jobModal');
     if (!modal) return;
@@ -221,21 +221,48 @@ const App = (() => {
     document.getElementById('modalStatus').textContent = job.state.toUpperCase();
     document.getElementById('modalStatus').className = `escrow-status status-${job.state}`;
     document.getElementById('modalReward').textContent = `$${(job.paymentAmount / 1e6).toLocaleString()} USDC`;
-    document.getElementById('modalDeadline').textContent = job.collateralAmount > 0 ? `$${(job.collateralAmount / 1e6).toLocaleString()} USDC collateral` : 'None';
+    document.getElementById('modalDeadline').textContent = (job.buyerCollateral || job.collateralAmount || 0) > 0 
+      ? `$${((job.buyerCollateral || job.collateralAmount || 0) / 1e6).toLocaleString()} USDC collateral` : 'None';
     document.getElementById('modalPoster').textContent = trunc(job.buyer);
-    const noSeller = job.seller === '11111111111111111111111111111111';
+    const noSeller = !job.seller || job.seller === '11111111111111111111111111111111';
     document.getElementById('modalWorker').textContent = noSeller ? 'Awaiting agent...' : trunc(job.seller);
-    document.getElementById('modalDescription').textContent = `Account: ${job.pubkey}\nBuyer: ${job.buyer}\nSeller: ${noSeller ? 'None' : job.seller}\nCreated: ${new Date(job.createdAt).toLocaleString()}`;
+    
+    // Show description + account info
+    let descText = job.description ? `${job.description}\n\n` : '';
+    descText += `Account: ${job.pubkey || 'N/A'}\nBuyer: ${job.buyer}\nSeller: ${noSeller ? 'None' : job.seller}\nCreated: ${job.createdAt ? new Date(job.createdAt).toLocaleString() : 'N/A'}`;
+    document.getElementById('modalDescription').textContent = descText;
+
+    // Load files for this escrow
+    const filesEl = document.getElementById('modalFiles');
+    if (filesEl) {
+      try {
+        const res = await fetch(`${CONFIG.API_URL}/api/files?escrowId=${job.escrowId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const files = data.files || [];
+          if (files.length > 0) {
+            filesEl.innerHTML = '<h4 style="margin:0.5rem 0">📁 Deliverables</h4>' + files.map(f => 
+              `<div class="file-item">
+                <span>📄 ${f.filename || f.id}</span>
+                <a href="${CONFIG.API_URL}/api/files/${f.id}?raw=true" target="_blank" class="btn btn-sm btn-outline">⬇ Download</a>
+              </div>`
+            ).join('');
+          } else {
+            filesEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem">No files uploaded yet</p>';
+          }
+        }
+      } catch { filesEl.innerHTML = ''; }
+    }
 
     const actions = document.getElementById('modalActions');
     actions.innerHTML = '';
     const isMyBuyer = publicKey && job.buyer === publicKey;
     const isMySeller = publicKey && job.seller === publicKey;
-    if (job.state === 'open' && publicKey && !isMyBuyer) actions.innerHTML += `<button class="btn btn-primary" onclick="App.acceptJob('${pubkey}')">🤖 Accept</button>`;
-    if (job.state === 'active' && isMySeller) actions.innerHTML += `<button class="btn btn-primary" onclick="App.deliverJob('${pubkey}')">📦 Deliver</button>`;
+    if ((job.state === 'created' || job.state === 'open') && publicKey && !isMyBuyer) actions.innerHTML += `<button class="btn btn-primary" onclick="App.acceptJob('${job.pubkey || job.escrowId}')">🤖 Accept</button>`;
+    if ((job.state === 'accepted' || job.state === 'active') && isMySeller) actions.innerHTML += `<button class="btn btn-primary" onclick="App.deliverJob('${job.pubkey || job.escrowId}')">📦 Deliver</button>`;
     if (job.state === 'delivered' && isMyBuyer) {
-      actions.innerHTML += `<button class="btn btn-primary" onclick="App.approveJob('${pubkey}')">✅ Approve</button>`;
-      actions.innerHTML += `<button class="btn btn-outline" onclick="App.disputeJob('${pubkey}')">⚖️ Dispute</button>`;
+      actions.innerHTML += `<button class="btn btn-primary" onclick="App.approveJob('${job.pubkey || job.escrowId}')">✅ Approve</button>`;
+      actions.innerHTML += `<button class="btn btn-outline" onclick="App.disputeJob('${job.pubkey || job.escrowId}')">⚖️ Dispute</button>`;
     }
     actions.innerHTML += `<button class="btn btn-outline" onclick="App.closeModal()">Close</button>`;
     modal.classList.add('active');
