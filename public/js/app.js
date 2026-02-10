@@ -334,14 +334,110 @@ const App = (() => {
   }
 
   async function deliverJob(pubkey) {
-    const text = prompt('Delivery description/URL:'); if (!text) return;
-    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
-    const disc = await computeDiscriminator('deliver');
-    const sig = await sendTx(new TransactionInstruction({ programId: CONFIG.PROGRAM_ID, keys: [
-      { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false },
-      { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
-    ], data: Buffer.concat([Buffer.from(disc), Buffer.from(hash)]) }));
-    if (sig) { toast('Delivered!', 'success'); closeModal(); loadEscrows(); }
+    const job = escrows.find(e => e.pubkey === pubkey || e.escrowId == pubkey);
+    if (!job) return;
+    // Show deliver dialog
+    const modal = document.getElementById('deliverModal');
+    if (!modal) {
+      // Create deliver modal dynamically
+      const div = document.createElement('div');
+      div.id = 'deliverModal';
+      div.className = 'modal-overlay active';
+      div.innerHTML = `
+        <div class="modal-card" style="max-width:500px">
+          <h3>📦 Deliver Work</h3>
+          <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:1rem">Upload your deliverable for Escrow #<span id="deliverEscrowId"></span></p>
+          <div style="margin-bottom:1rem">
+            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary)">File</label>
+            <input type="file" id="deliverFile" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary)">
+          </div>
+          <div style="margin-bottom:1rem">
+            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary)">Or paste text content</label>
+            <textarea id="deliverText" rows="4" placeholder="Paste text content here..." style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);resize:vertical;font-family:inherit"></textarea>
+          </div>
+          <div style="margin-bottom:1rem;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.9rem">
+              <input type="checkbox" id="deliverEncrypt" checked> 🔒 Encrypt delivery
+            </label>
+            <div id="encryptOptions" style="margin-top:8px">
+              <div style="display:flex;gap:8px;margin-bottom:4px">
+                <label style="flex:1;display:flex;align-items:center;gap:4px;font-size:0.8rem;cursor:pointer">
+                  <input type="radio" name="encryptMode" value="server" checked> Server encrypts <span style="color:var(--accent);font-size:0.7rem">(recommended)</span>
+                </label>
+                <label style="flex:1;display:flex;align-items:center;gap:4px;font-size:0.8rem;cursor:pointer">
+                  <input type="radio" name="encryptMode" value="client"> Client encrypts <span style="color:var(--text-muted);font-size:0.7rem">(advanced)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" id="deliverSubmit">🚀 Upload & Deliver</button>
+            <button class="btn btn-outline" onclick="document.getElementById('deliverModal').remove()">Cancel</button>
+          </div>
+        </div>`;
+      document.body.appendChild(div);
+    }
+    document.getElementById('deliverEscrowId').textContent = job.escrowId;
+    document.getElementById('deliverModal').className = 'modal-overlay active';
+    
+    // Toggle encrypt options visibility
+    document.getElementById('deliverEncrypt').onchange = (e) => {
+      document.getElementById('encryptOptions').style.display = e.target.checked ? 'block' : 'none';
+    };
+
+    document.getElementById('deliverSubmit').onclick = async () => {
+      const fileInput = document.getElementById('deliverFile');
+      const textInput = document.getElementById('deliverText');
+      const encrypt = document.getElementById('deliverEncrypt').checked;
+      const mode = document.querySelector('input[name="encryptMode"]:checked')?.value || 'server';
+
+      let content, filename;
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        filename = file.name;
+        const buf = await file.arrayBuffer();
+        content = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      } else if (textInput.value.trim()) {
+        filename = 'delivery.txt';
+        content = btoa(textInput.value);
+      } else {
+        toast('Upload a file or enter text', 'error'); return;
+      }
+
+      try {
+        toast('Uploading...', 'info');
+        const uploadBody = { filename, content, escrowId: String(job.escrowId) };
+        if (encrypt && mode === 'server') {
+          uploadBody.serverEncrypt = true;
+          // Buyer + arbitrator pubkeys come from escrow data or API
+          uploadBody.buyerPubKey = job.buyer;
+          uploadBody.arbitratorPubKey = job.arbitrator || '';
+        }
+        
+        const uploadRes = await fetch(`${CONFIG.API_URL}/api/files`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(uploadBody)
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.ok) { toast(`Upload failed: ${uploadData.error}`, 'error'); return; }
+
+        toast('File uploaded! Delivering on-chain...', 'info');
+        
+        // Deliver via API (agent flow) since Phantom TX building is complex
+        const deliverRes = await fetch(`${CONFIG.API_URL}/api/jobs/${job.escrowId}/deliver`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentHash: uploadData.contentHash, fileId: uploadData.fileId })
+        });
+        const deliverData = await deliverRes.json();
+        
+        document.getElementById('deliverModal').remove();
+        toast('Delivered! 🦞', 'success');
+        closeModal();
+        loadEscrows();
+      } catch (err) {
+        toast(`Delivery failed: ${err.message}`, 'error');
+      }
+    };
   }
 
   async function approveJob(pubkey) {
