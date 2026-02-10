@@ -285,8 +285,21 @@ const server = createServer(async (req, res) => {
         // Merge with any in-memory-only jobs (not yet on chain)
         const onChainIds = new Set(onChainJobs.map(j => j.escrowId));
         const memOnlyJobs = Array.from(jobs.values()).filter(j => !onChainIds.has(j.escrowId));
-        const allJobs = [...onChainJobs, ...memOnlyJobs].sort((a, b) => b.escrowId - a.escrowId);
-        return json(res, { jobs: allJobs, count: allJobs.length, source: "chain+memory" });
+        let allJobs = [...onChainJobs, ...memOnlyJobs].sort((a, b) => b.escrowId - a.escrowId);
+        
+        // Filter by wallet if requested
+        const wallet = url.searchParams.get("wallet");
+        if (wallet) {
+          allJobs = allJobs.filter(j => j.buyer === wallet || j.seller === wallet);
+        }
+        
+        // Pagination
+        const page = parseInt(url.searchParams.get("page") || "1");
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 100);
+        const total = allJobs.length;
+        const paged = allJobs.slice((page - 1) * limit, page * limit);
+        
+        return json(res, { jobs: paged, count: paged.length, total, page, limit, source: "chain+memory" });
       } catch (err: any) {
         // Fallback to in-memory if chain read fails
         const jobList = Array.from(jobs.values()).sort((a, b) => b.createdAt - a.createdAt);
