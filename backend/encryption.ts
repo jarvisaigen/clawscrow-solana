@@ -155,12 +155,16 @@ export function getOrCreateEscrowKeys(escrowId: string): EscrowKeys {
 
 export function decryptForBuyer(escrowId: string, encryptedData: Buffer): Buffer {
   const keys = getOrCreateEscrowKeys(escrowId);
-  return eciesDecrypt(encryptedData, keys.buyerPrivKey);
+  // Use eciesjs library (same as files.ts uses for encryption)
+  const { decryptWithPrivateKey } = require("./ecies");
+  return decryptWithPrivateKey(keys.buyerPrivKey, encryptedData);
 }
 
 export function decryptForArbitrator(escrowId: string, encryptedData: Buffer): Buffer {
   const keys = getOrCreateEscrowKeys(escrowId);
-  return eciesDecrypt(encryptedData, keys.arbitratorPrivKey);
+  // Use eciesjs library (same as files.ts uses for encryption)
+  const { decryptWithPrivateKey } = require("./ecies");
+  return decryptWithPrivateKey(keys.arbitratorPrivKey, encryptedData);
 }
 
 // === Self-test ===
