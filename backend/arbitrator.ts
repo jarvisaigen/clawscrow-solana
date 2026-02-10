@@ -156,14 +156,21 @@ async function callGemini(apiKey: string, system: string, user: string, model: s
 }
 
 async function callGrok(apiKey: string, system: string, user: string, model: string): Promise<ArbitrationResult> {
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+  // Support both direct xAI API and OpenRouter
+  const isOpenRouter = apiKey.startsWith("sk-or-");
+  const baseUrl = isOpenRouter
+    ? "https://openrouter.ai/api/v1/chat/completions"
+    : "https://api.x.ai/v1/chat/completions";
+  const modelId = isOpenRouter ? "x-ai/grok-4.1" : "grok-4.1";
+
+  const res = await fetch(baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "grok-4.1",
+      model: modelId,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },

@@ -388,10 +388,10 @@ const server = createServer(async (req, res) => {
         anthropic: process.env.ANTHROPIC_API_KEY || "",
         openai: process.env.OPENAI_API_KEY || "",
         gemini: process.env.GEMINI_API_KEY || "",
-        grok: process.env.GROK_API_KEY || "",
+        grok: process.env.GROK_API_KEY || process.env.OPENROUTER_API_KEY || "",
       };
 
-      if (apiKeys.anthropic && apiKeys.openai && apiKeys.gemini) {
+      if (apiKeys.grok || (apiKeys.anthropic && apiKeys.openai && apiKeys.gemini)) {
         const escrowData = {
           escrowId: id,
           buyer: job.buyer,
