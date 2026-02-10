@@ -161,7 +161,7 @@ async function callGrok(apiKey: string, system: string, user: string, model: str
   const baseUrl = isOpenRouter
     ? "https://openrouter.ai/api/v1/chat/completions"
     : "https://api.x.ai/v1/chat/completions";
-  const modelId = isOpenRouter ? "x-ai/grok-4" : "grok-4.1";
+  const modelId = isOpenRouter ? "x-ai/grok-4.1-fast" : "grok-4.1";
 
   const res = await fetch(baseUrl, {
     method: "POST",
