@@ -309,17 +309,20 @@ const App = (() => {
       el.innerHTML = `<p class="empty-state">No disputes resolved yet</p>`;
       return;
     }
-    el.innerHTML = filtered.map(d => `
-      <div class="decision-row">
+    el.innerHTML = filtered.map((d, i) => `
+      <div class="decision-row" onclick="App.toggleDecision(${i})" style="cursor:pointer">
         <div class="decision-header">
           <span class="decision-id">Escrow #${d.escrowId}</span>
           <span class="decision-verdict ${d.verdict === 'buyer' ? 'verdict-buyer' : 'verdict-seller'}">${d.verdict === 'buyer' ? '✗ Buyer Wins' : '✓ Seller Wins'}</span>
           <span class="decision-amount">$${d.amount.toFixed(2)} USDC</span>
           ${d.confidence ? `<span class="decision-confidence" title="AI Confidence">${(d.confidence * 100).toFixed(0)}%</span>` : ''}
           <span class="decision-date">${d.date}</span>
+          <span style="margin-left:auto;font-size:0.8rem">▼</span>
         </div>
-        ${d.model ? `<div style="font-size:0.75rem;color:var(--accent);margin:0.25rem 0">🤖 ${d.model}</div>` : ''}
-        ${d.reasoning ? `<div class="decision-reasoning">${d.reasoning}</div>` : '<div class="decision-reasoning" style="color:var(--text-muted)">Reasoning not available (pre-persistence ruling)</div>'}
+        <div class="decision-detail" id="decision-detail-${i}" style="display:none;margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border)">
+          ${d.model ? `<div style="font-size:0.75rem;color:var(--accent);margin-bottom:0.25rem">🤖 ${d.model}</div>` : ''}
+          ${d.reasoning ? `<div class="decision-reasoning">${d.reasoning}</div>` : '<div class="decision-reasoning" style="color:var(--text-muted)">Reasoning not available (pre-persistence ruling)</div>'}
+        </div>
       </div>
     `).join('');
   }
@@ -327,6 +330,11 @@ const App = (() => {
   function filterEscrows(filter) {
     currentFilter = filter;
     renderEscrows();
+  }
+
+  function toggleDecision(idx) {
+    const el = document.getElementById(`decision-detail-${idx}`);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
   }
 
   function filterDecisions() {
@@ -814,6 +822,6 @@ const App = (() => {
   return {
     connectWallet, showCreateForm, acceptJob, deliverJob, submitDelivery,
     approveJob, disputeJob, filterEscrows, openJob, closeModal,
-    copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows,
+    copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows, toggleDecision,
   };
 })();
