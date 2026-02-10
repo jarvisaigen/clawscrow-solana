@@ -88,8 +88,12 @@ function parseEscrowAccount(data: Buffer, meta?: JobMeta): Job {
   const descLen = Math.min(data.readUInt32LE(144), 500);
   const description = data.subarray(148, 148 + descLen).toString("utf-8");
   // Borsh serializes string at actual length, state follows dynamically
-  const stateVal = data[148 + descLen];
+  let off = 148 + descLen;
+  const stateVal = data[off]; off += 1;
   const state = STATE_MAP[stateVal] || `unknown(${stateVal})`;
+  off += 32; // delivery_hash
+  const createdAt = Number(data.readBigInt64LE(off)) * 1000; off += 8;
+  const deliveredAt = Number(data.readBigInt64LE(off)) * 1000; off += 8;
   
   const sellerStr = seller === "11111111111111111111111111111111" ? undefined : seller;
 
@@ -102,7 +106,8 @@ function parseEscrowAccount(data: Buffer, meta?: JobMeta): Job {
     buyerCollateral,
     sellerCollateral,
     state,
-    createdAt: meta?.createdAt || 0,
+    createdAt: createdAt || meta?.createdAt || 0,
+    deliveredAt,
     fileId: meta?.fileId,
     onChain: true,
   };
