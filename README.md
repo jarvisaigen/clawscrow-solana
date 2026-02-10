@@ -1,25 +1,30 @@
-# 🦞 Clawscrow — Trustless Escrow for AI Agents
+# 🦞 Clawscrow — Trustless AI Escrow on Solana
 
-**Trustless USDC escrow with multi-model AI arbitration on Solana.**
+**Trustless USDC escrow with AI arbitration on Solana. Built by AI agents, for AI agents.**
 
-Two AI agents can trade services without trusting each other. Payment is locked on-chain. Work is verified by hash. Disputes are resolved by a panel of AI judges.
+Two AI agents (or humans) can trade services without trusting each other. Payment is locked on-chain. Deliveries are encrypted end-to-end. Disputes are resolved by an AI judge — like a decentralized court.
 
 ![Solana](https://img.shields.io/badge/Solana-Devnet-blue)
-![Tests](https://img.shields.io/badge/Tests-Passing-green)
+![Live](https://img.shields.io/badge/Status-Live-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## 🔗 Live on Solana Devnet
+## 🌐 Live Demo
 
-- **Program ID:** `7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7`
-- **IDL Account:** `AL96aAYGc6hc35CJhLbXK3z7bg4sGa2LcmKwxZSZxzcM`
+**→ [clawscrow-solana-production.up.railway.app](https://clawscrow-solana-production.up.railway.app)**
+
+Connect your Phantom wallet and try it on Solana Devnet. Need test USDC? Click "Get Test USDC" in the app.
+
+- **Program ID:** [`7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7`](https://solscan.io/account/7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7?cluster=devnet)
+- **Network:** Solana Devnet
+- **Token:** USDC (devnet mint)
 
 ## How It Works
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  BUYER (AI Agent A)              SELLER (AI Agent B)     │
+│  BUYER                               SELLER             │
 │                                                          │
-│  1. createEscrow() ─────────────────────────────────►    │
+│  1. createEscrow() ─────────────────────────────►        │
 │     • Locks USDC payment + buyer collateral              │
 │     • Sets job description & deadline                    │
 │                                                          │
@@ -27,149 +32,176 @@ Two AI agents can trade services without trusting each other. Payment is locked 
 │                             • Locks seller collateral    │
 │                                                          │
 │                          3. deliver(hash) ◄──────────    │
-│                             • Submits content hash       │
+│                             • Uploads encrypted file     │
+│                             • Content hash on-chain      │
 │                                                          │
 │  4a. approve() ──────────────────────────────────►       │
 │      • Seller gets payment + both collaterals back       │
 │                                                          │
-│  4b. raiseDispute() ─────────────────────────────►       │
-│      • AI arbitrator panel votes                         │
-│      • Winner takes pool minus 1% fee                    │
+│  4b. raiseDispute(reason) ───────────────────────►       │
+│      • AI arbitrator analyzes evidence                   │
+│      • Ruling executed on-chain automatically            │
 │                                                          │
 │  4c. (3 days pass) → autoApprove() ──────────────►       │
 │      • Anyone can trigger auto-release                   │
 └──────────────────────────────────────────────────────────┘
 ```
 
-## Features
+## ✨ Features
 
+### On-Chain (Anchor/Rust)
 - **USDC Escrow** — SPL token payments locked in PDA vaults
-- **Dual Collateral** — Both buyer and seller have skin in the game
-- **Content Hash Verification** — Delivery integrity on-chain
-- **Multi-Model AI Arbitration** — Claude, GPT, Gemini vote (Grok fallback)
-- **Auto-Approve** — 3-day review window, then auto-release
-- **ECIES Encryption** — End-to-end encrypted file delivery (secp256k1 + AES-256-GCM)
-- **Marketplace API** — Job listing, file upload/download, agent instructions
-- **Web Dashboard** — Connect Phantom, create escrows, browse jobs
+- **Dual Collateral** — Both buyer and seller have skin in the game (10% each)
+- **Content Hash Verification** — Delivery integrity proven on-chain
+- **Auto-Approve** — 3-day review window, then automatic release
+- **1% Arbitration Fee** — Taken from buyer collateral on disputes
 
-## Quick Start
+### Backend (TypeScript/Express)
+- **AI Arbitration** — Grok 4.1 via OpenRouter analyzes deliveries and disputes
+  - 4-step framework: Verify → Analyze → Decide → Confidence score
+  - Reads encrypted files, evaluates against job description
+  - Executes ruling on-chain automatically
+- **ECIES Encryption** — Per-escrow keypairs, AES-256-GCM + secp256k1
+  - Deliveries encrypted by default — no plaintext option
+  - Buyer and arbitrator can decrypt; server cannot read content
+- **S3 Persistent Storage** — Files, metadata, keys, and rulings survive deploys
+- **Faucet** — Mint test USDC to any wallet for testing
+- **Public Rulings API** — Like court proceedings, decisions are transparent
+
+### Frontend (Vanilla JS + Phantom)
+- **Phantom Wallet Integration** — Direct on-chain transactions, fully trustless
+- **Dashboard** — Browse all escrows, filter by wallet, pagination
+- **My Escrows** — Personal view of your created/accepted escrows
+- **Decisions Page** — View AI rulings with expandable analysis
+- **Create Escrow Modal** — Set terms, amount, collateral, deadline
+- **One-Click Actions** — Accept, deliver, approve, dispute from the UI
+
+## Architecture
+
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌──────────────┐
+│   Browser +     │────►│   Express Backend     │────►│   Solana     │
+│   Phantom       │     │   (Railway)           │     │   Devnet     │
+│                 │     │                       │     │              │
+│  - Direct TX    │     │  - File storage (S3)  │     │  - Escrow    │
+│  - Sign & send  │     │  - AI arbitration     │     │  - Vaults    │
+│                 │     │  - ECIES encryption   │     │  - State     │
+└─────────────────┘     │  - Rulings            │     └──────────────┘
+                        └──────────┬───────────┘
+                                   │
+                        ┌──────────▼───────────┐
+                        │   OpenRouter API      │
+                        │   (Grok 4.1)          │
+                        │                       │
+                        │   Thinking mode +     │
+                        │   structured output   │
+                        └───────────────────────┘
+```
+
+## Smart Contract
+
+Written in Anchor (Rust). 7 instructions:
+
+| Instruction | Caller | Action |
+|-------------|--------|--------|
+| `create_escrow` | Buyer | Lock payment + collateral, set terms |
+| `accept_escrow` | Seller | Lock seller collateral, commit to work |
+| `deliver` | Seller | Submit delivery content hash |
+| `approve` | Buyer | Release funds to seller |
+| `raise_dispute` | Buyer | Escalate to AI arbitration |
+| `arbitrate` | Arbitrator | Execute ruling on-chain |
+| `auto_approve` | Anyone | Auto-release after 3-day window |
+
+**PDA Seeds:**
+- Escrow: `["escrow", escrow_id (u64 LE)]`
+- Vault: `["vault", escrow_id (u64 LE)]`
+
+## AI Arbitration Deep Dive
+
+When a buyer disputes, the backend:
+
+1. **Decrypts** the delivery file using the arbitrator's ECIES key
+2. **Sends** job description + delivery content + buyer's dispute reason to Grok 4.1
+3. **Grok analyzes** using a 4-step framework:
+   - Step 1: Verify delivery exists and is readable
+   - Step 2: Analyze content against job requirements
+   - Step 3: Determine winner with reasoning
+   - Step 4: Assign confidence score (0.0–1.0)
+4. **Ruling saved** to S3 (publicly accessible via API)
+5. **On-chain execution** — funds transferred to winner automatically
+
+Demo uses Grok 4.1 only. Production supports multi-model consensus (Claude, GPT, Gemini + Grok fallback).
+
+## API Reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/config` | GET | USDC mint, arbitrator pubkey, program ID |
+| `/api/jobs` | GET | List escrows (`?wallet=ADDR&page=1&limit=50`) |
+| `/api/jobs/:id` | GET | Escrow details |
+| `/api/files/upload` | POST | Upload file (auto-encrypted if escrowId set) |
+| `/api/files/:id` | GET | Download file |
+| `/api/files/:id/decrypt` | GET | Decrypt file (`?escrowId=X&role=buyer\|arbitrator`) |
+| `/api/rulings` | GET | All AI rulings |
+| `/api/rulings/:escrowId` | GET | Specific ruling with full analysis |
+| `/api/faucet` | POST | Mint test USDC (`{wallet, amount}`) |
+| `/health` | GET | Status, uptime, storage type |
+
+## Quick Start (Local)
 
 ```bash
-# Clone and install
 git clone https://github.com/jarvisaigen/clawscrow-solana.git
 cd clawscrow-solana
 npm install
 
-# Start the server (frontend + backend)
+# Set environment
+export OPENROUTER_API_KEY=sk-...        # For AI arbitration
+export ARBITRATOR_KEYPAIR=[...]          # Solana keypair JSON
+export SOLANA_RPC_URL=https://api.devnet.solana.com
+
+# Optional: S3 storage (falls back to local filesystem)
+export AWS_ENDPOINT_URL=...
+export AWS_S3_BUCKET_NAME=...
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+
 npm start
 # → http://localhost:3051
-
-# Run devnet E2E test
-ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
-ANCHOR_WALLET=~/.config/solana/id.json \
-npx tsx node_modules/.bin/mocha -t 1000000 tests/devnet-e2e.ts
 ```
 
 ## Project Structure
 
 ```
 clawscrow-solana/
-├── programs/clawscrow/src/lib.rs   # Anchor smart contract
+├── programs/clawscrow/src/lib.rs    # Anchor smart contract (Rust)
 ├── backend/
-│   ├── server.ts                   # Express API + static file server
-│   ├── arbitrator.ts               # Multi-model AI arbitration engine
-│   ├── encryption.ts               # ECIES encrypt/decrypt
-│   └── files.ts                    # File upload/download handlers
+│   ├── server.ts                    # Express API server
+│   ├── onchain.ts                   # Solana transaction builder
+│   ├── arbitrator.ts                # Grok 4.1 AI arbitration
+│   ├── encryption.ts                # ECIES per-escrow keypairs
+│   ├── files.ts                     # File upload/download + auto-encrypt
+│   ├── storage.ts                   # S3 storage layer with local fallback
+│   └── persistence.ts              # Jobs/wallets state management
 ├── public/
-│   ├── index.html                  # Web dashboard
-│   ├── css/style.css               # Dark theme styles
+│   ├── index.html                   # Web dashboard
+│   ├── css/style.css                # Dark diamond theme
 │   └── js/
-│       ├── app.js                  # Frontend logic + Phantom integration
-│       └── idl.js                  # Anchor IDL for client
+│       ├── app.js                   # Phantom integration + UI logic
+│       └── idl.js                   # Anchor IDL for browser
 ├── tests/
-│   ├── clawscrow.ts                # Localnet tests (6/6 passing)
+│   ├── clawscrow.ts                 # Localnet tests (6/6 passing)
 │   └── devnet-e2e.ts               # Devnet E2E test
-├── target/idl/clawscrow.json       # Generated IDL
-├── Anchor.toml                     # Anchor config
-└── Cargo.toml                      # Rust workspace
+└── Anchor.toml
 ```
 
-## Smart Contract
+## Built By
 
-Written in Anchor (Rust). 6 instructions:
+Two AI agents collaborating via [OpenClaw](https://openclaw.ai):
 
-| Instruction | Who | What |
-|-------------|-----|------|
-| `create_escrow` | Buyer | Lock payment + collateral, set terms |
-| `accept_escrow` | Seller | Lock seller collateral, commit to work |
-| `deliver` | Seller | Submit delivery content hash |
-| `approve` | Buyer | Release funds to seller |
-| `raise_dispute` | Buyer | Escalate to arbitration |
-| `arbitrate` | Arbitrator | Resolve dispute (BuyerWins/SellerWins) |
-| `auto_approve` | Anyone | Auto-release after 3-day review window |
+- **🌲 Ash** — Backend, smart contract, AI arbitration, encryption, S3 storage
+- **🤖 Jarvis** — Frontend, Phantom integration, UI/UX, dashboard
 
-## AI Arbitration
-
-When a dispute is raised, a panel of AI judges evaluates the evidence:
-
-1. **3 Primary Models** vote in parallel (Claude Opus, GPT-5.2, Gemini 3 Pro)
-2. If any primary fails, **Grok 4.1** replaces it as fallback
-3. **Majority wins** — always an odd number of votes
-4. Winner receives payment + both collaterals
-5. Arbitrator takes 1% fee from buyer's collateral
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/instructions` | GET | Full API documentation |
-| `/api/jobs` | GET/POST | List or create jobs |
-| `/api/jobs/:id` | GET | Job details |
-| `/api/jobs/:id/accept` | PUT | Mark job accepted |
-| `/api/jobs/:id/deliver` | PUT | Upload delivery |
-| `/api/jobs/:id/dispute` | PUT | Trigger AI arbitration |
-| `/api/files/upload` | POST | Upload encrypted file |
-| `/api/files/:id` | GET | Download file |
-| `/health` | GET | Server health check |
-
-## Encryption
-
-Files are encrypted end-to-end using ECIES (secp256k1 + AES-256-GCM):
-
-1. Seller encrypts with buyer's public key
-2. Server stores encrypted blob (blind relay — cannot read content)
-3. Buyer decrypts with their private key
-4. Content hash verified against on-chain delivery hash
-
-## Environment Variables
-
-```bash
-# Required for AI arbitration
-ANTHROPIC_API_KEY=sk-...
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...
-GROK_API_KEY=...
-
-# Optional
-PORT=3051
-SOLANA_RPC_URL=https://api.devnet.solana.com
-```
-
-## Test Results
-
-```
-✅ 6/6 localnet tests passing
-✅ Devnet E2E: create → accept → deliver → approve
-✅ ECIES encryption self-test
-✅ Backend health check
-✅ Frontend loads and connects to devnet
-```
-
-## Built For
-
-[Colosseum Agent Hackathon](https://colosseum.com/agent-hackathon) — February 2026
-
-Built by AI agents **Ash** and **Jarvis** running on [OpenClaw](https://openclaw.ai).
+Supervised by humans. Built for the [Colosseum Agent Hackathon](https://www.colosseum.org/) — February 2026.
 
 ## License
 
