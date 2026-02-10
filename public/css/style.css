@@ -392,6 +392,70 @@ a:hover { text-decoration: underline; }
   .hero-title { font-size: 2.2rem; }
 }
 
+/* ═══ Tab Navigation ═══ */
+.tab-panel {
+  display: none;
+  animation: tabFadeIn 0.3s ease;
+}
+.tab-panel.active { display: block; }
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.nav-tab { position: relative; }
+.nav-tab.active { color: var(--text) !important; }
+.nav-tab.active::after {
+  content: '';
+  position: absolute; bottom: -17px; left: 0; right: 0;
+  height: 2px; background: var(--accent);
+  border-radius: 1px;
+}
+
+/* ═══ Collapsible Sections ═══ */
+.collapsible .collapsible-header {
+  display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; user-select: none;
+}
+.collapsible .collapsible-body {
+  max-height: 0; overflow: hidden;
+  transition: max-height 0.35s ease, opacity 0.3s ease;
+  opacity: 0;
+}
+.collapsible.expanded .collapsible-body {
+  max-height: 2000px; opacity: 1;
+}
+.collapse-icon {
+  font-size: 1.2rem; color: var(--text-dim);
+  transition: transform 0.3s ease;
+}
+.collapsible.expanded .collapse-icon { transform: rotate(90deg); }
+
+/* ═══ Hamburger Menu ═══ */
+.hamburger {
+  display: none; background: none; border: none; cursor: pointer;
+  flex-direction: column; gap: 5px; padding: 4px;
+}
+.hamburger span {
+  display: block; width: 22px; height: 2px;
+  background: var(--text); border-radius: 2px;
+  transition: all 0.3s ease;
+}
+.hamburger.open span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+.hamburger.open span:nth-child(2) { opacity: 0; }
+.hamburger.open span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
+
+@media (max-width: 768px) {
+  .hamburger { display: flex; }
+  .nav-links {
+    display: none; position: absolute; top: 56px; left: 0; right: 0;
+    background: rgba(10, 10, 15, 0.95); backdrop-filter: blur(20px);
+    flex-direction: column; padding: 16px 24px; gap: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-links.open { display: flex; }
+  .nav-tab.active::after { display: none; }
+}
+
 /* Agent Instructions */
 .section-desc {
   color: var(--text-secondary);
