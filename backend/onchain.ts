@@ -388,6 +388,28 @@ export async function resolveDispute(escrowId: string, ruling: "BuyerWins" | "Se
   return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: tx, state };
 }
 
+export function getConfig(): { programId: string; usdcMint: string; arbitrator: string } {
+  return {
+    programId: PROGRAM_ID.toBase58(),
+    usdcMint: usdcMint?.toBase58() || "",
+    arbitrator: arbitratorKeypair?.publicKey?.toBase58() || "",
+  };
+}
+
+export async function mintTestUSDC(address: string, amount: number): Promise<{ tokenAccount: string; amount: number; mint: string }> {
+  const recipient = new PublicKey(address);
+  const { getOrCreateAssociatedTokenAccount, mintTo } = await import("@solana/spl-token");
+  
+  const ata = await getOrCreateAssociatedTokenAccount(
+    connection, treasuryKeypair, usdcMint, recipient
+  );
+  
+  await mintTo(connection, treasuryKeypair, usdcMint, ata.address, treasuryKeypair.publicKey, amount);
+  
+  console.log(`[Faucet] Minted ${amount} USDC to ${address} (ATA: ${ata.address.toBase58()})`);
+  return { tokenAccount: ata.address.toBase58(), amount, mint: usdcMint.toBase58() };
+}
+
 export async function getEscrowOnChain(escrowId: string): Promise<any> {
   const eid = new anchor.BN(escrowId);
   const [escrowPda] = deriveEscrowPDA(eid);

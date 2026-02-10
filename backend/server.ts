@@ -571,6 +571,25 @@ const server = createServer(async (req, res) => {
       return json(res, { file: meta });
     }
 
+    // === FAUCET — mint test USDC to any devnet address ===
+    if (pathname === "/api/faucet" && req.method === "POST") {
+      const { initOnChain, mintTestUSDC } = await import("./onchain");
+      await initOnChain();
+      const body = await parseBody(req);
+      if (!body.address) return json(res, { error: "Missing address (Solana pubkey)" }, 400);
+      const amount = body.amount || 100_000_000; // default 100 USDC
+      const result = await mintTestUSDC(body.address, amount);
+      return json(res, { ok: true, ...result });
+    }
+
+    // === CONFIG — expose runtime config for frontend ===
+    if (pathname === "/api/config" && req.method === "GET") {
+      const { initOnChain, getConfig } = await import("./onchain");
+      await initOnChain();
+      const config = getConfig();
+      return json(res, config);
+    }
+
     // === ON-CHAIN AGENT ENDPOINTS ===
     if (pathname === "/api/agents/register" && req.method === "POST") {
       const { initOnChain, registerAgent } = await import("./onchain");

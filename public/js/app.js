@@ -15,7 +15,23 @@ const App = (() => {
     ASSOCIATED_TOKEN_PROGRAM_ID: new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'),
     RPC_URL: 'https://api.devnet.solana.com',
     API_URL: window.location.origin,
+    loaded: false,
   };
+
+  // Fetch runtime config (USDC mint, arbitrator) from backend
+  async function loadConfig() {
+    if (CONFIG.loaded) return;
+    try {
+      const res = await fetch(`${CONFIG.API_URL}/api/config`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.usdcMint) CONFIG.USDC_MINT = new PublicKey(data.usdcMint);
+        if (data.arbitrator) CONFIG.ARBITRATOR = new PublicKey(data.arbitrator);
+        CONFIG.loaded = true;
+        console.log('Config loaded — USDC:', data.usdcMint, 'Arbitrator:', data.arbitrator);
+      }
+    } catch (e) { console.warn('Config fetch failed, using defaults'); }
+  }
 
   const connection = new Connection(CONFIG.RPC_URL, 'confirmed');
 
@@ -662,8 +678,9 @@ const App = (() => {
   }
 
   // ─── Init ───
-  function init() {
+  async function init() {
     document.getElementById('connectWallet')?.addEventListener('click', connectWallet);
+    await loadConfig();
     loadEscrows();
     loadDecisions();
     setInterval(() => { loadEscrows(); loadDecisions(); }, 30000);
