@@ -405,7 +405,15 @@ const server = createServer(async (req, res) => {
           escrowData,
           body.buyerArgument || "Work was not delivered as described",
           body.sellerArgument || "Work was delivered according to spec",
-          body.deliveryContent || "No content provided",
+          body.deliveryContent || (() => {
+            // Auto-fetch delivery content from stored files
+            const escrowFiles = listFiles(Number(id));
+            if (escrowFiles.length > 0) {
+              const fileData = downloadFile(escrowFiles[escrowFiles.length - 1].id);
+              return fileData?.toString("utf8")?.slice(0, 5000) || "No content provided";
+            }
+            return "No content provided";
+          })(),
           apiKeys
         );
 
