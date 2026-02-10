@@ -438,7 +438,14 @@ curl -X PUT /api/jobs/1770712680726/dispute \
       // Close mobile menu
       document.getElementById('navLinks').classList.remove('open');
       document.getElementById('hamburgerBtn').classList.remove('open');
+      // Remember active tab
+      try { sessionStorage.setItem('clawscrow-tab', tabName); } catch(e) {}
     }
+    // Restore tab on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      var saved = sessionStorage.getItem('clawscrow-tab');
+      if (saved) switchTab(saved);
+    });
 
     // Collapsible sections
     function toggleCollapsible(header) {

@@ -686,7 +686,7 @@ const App = (() => {
     await loadConfig();
     loadEscrows();
     loadDecisions();
-    setInterval(() => { loadEscrows(); loadDecisions(); }, 30000);
+    setInterval(() => { loadEscrows(); loadDecisions(); }, 10000);
     // Phantom auto-connect
     if (window.solana?.isPhantom && window.solana.isConnected) {
       window.solana.connect({ onlyIfTrusted: true }).then(resp => {
