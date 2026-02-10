@@ -17,17 +17,44 @@ import { eciesEncrypt, eciesDecrypt, hashContent, encryptForDelivery, decryptDel
 import { generateKeyPair, decryptWithPrivateKey } from "./ecies";
 import * as fs from "fs";
 import * as path from "path";
-import * as crypto from "crypto";
+// crypto imported via createHash below
 
 const PORT = process.env.PORT || 3051;
 const DEVNET_URL = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PROGRAM_ID = "7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7";
+const PROGRAM_PUBKEY = new PublicKey(PROGRAM_ID);
 const UPLOAD_DIR = path.join(__dirname, "../uploads");
 
 // Ensure upload directory exists
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// In-memory job store (backed by on-chain escrows)
+// Solana connection for on-chain reads
+const connection = new Connection(DEVNET_URL, "confirmed");
+
+// Anchor discriminator for "Escrow" account = sha256("account:Escrow")[0..8]
+import { createHash } from "crypto";
+const ESCROW_DISCRIMINATOR = createHash("sha256").update("account:Escrow").digest().subarray(0, 8);
+
+// State enum mapping (byte 168)
+const STATE_MAP: Record<number, string> = {
+  0: "created",
+  1: "accepted",
+  2: "delivered",
+  3: "approved",
+  4: "disputed",
+  5: "resolved_seller",
+  6: "resolved_buyer",
+  7: "cancelled",
+};
+
+// In-memory job store for metadata not on-chain (description, fileId, etc.)
+interface JobMeta {
+  escrowId: number;
+  description: string;
+  fileId?: string;
+  createdAt: number;
+}
+
 interface Job {
   escrowId: number;
   description: string;
@@ -40,8 +67,73 @@ interface Job {
   createdAt: number;
   deliveryHash?: string;
   fileId?: string;
+  onChain: boolean;
 }
 
+const jobMeta: Map<number, JobMeta> = new Map();
+
+// Parse on-chain escrow account data (699 bytes) into a Job
+function parseEscrowAccount(data: Buffer, meta?: JobMeta): Job {
+  const escrowId = Number(data.readBigUInt64LE(8));
+  const buyer = new PublicKey(data.subarray(16, 48)).toBase58();
+  const seller = new PublicKey(data.subarray(48, 80)).toBase58();
+  const arbitrator = new PublicKey(data.subarray(80, 112)).toBase58();
+  const mint = new PublicKey(data.subarray(112, 144)).toBase58();
+  const paymentAmount = Number(data.readBigUInt64LE(144));
+  const buyerCollateral = Number(data.readBigUInt64LE(152));
+  const sellerCollateral = Number(data.readBigUInt64LE(160));
+  const stateVal = data[168];
+  const state = STATE_MAP[stateVal] || `unknown(${stateVal})`;
+  
+  // Check if seller is all zeros (no seller yet)
+  const sellerStr = seller === "11111111111111111111111111111111" ? undefined : seller;
+
+  return {
+    escrowId,
+    description: meta?.description || `Escrow #${escrowId}`,
+    buyer,
+    seller: sellerStr,
+    paymentAmount,
+    buyerCollateral,
+    sellerCollateral,
+    state,
+    createdAt: meta?.createdAt || 0,
+    fileId: meta?.fileId,
+    onChain: true,
+  };
+}
+
+// Fetch all escrow accounts from chain
+async function fetchAllEscrows(): Promise<Job[]> {
+  const accounts = await connection.getProgramAccounts(PROGRAM_PUBKEY, {
+    filters: [
+      { memcmp: { offset: 0, bytes: anchor.utils.bytes.bs58.encode(ESCROW_DISCRIMINATOR) } },
+    ],
+  });
+  
+  return accounts.map(({ account }) => {
+    const data = account.data;
+    const escrowId = Number(data.readBigUInt64LE(8));
+    return parseEscrowAccount(data, jobMeta.get(escrowId));
+  });
+}
+
+// Fetch single escrow by ID from chain
+async function fetchEscrowById(escrowId: number): Promise<Job | null> {
+  const escrowIdBuf = Buffer.alloc(8);
+  escrowIdBuf.writeBigUInt64LE(BigInt(escrowId));
+  const [escrowPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("escrow"), escrowIdBuf],
+    PROGRAM_PUBKEY
+  );
+  
+  const accountInfo = await connection.getAccountInfo(escrowPda);
+  if (!accountInfo) return null;
+  
+  return parseEscrowAccount(accountInfo.data, jobMeta.get(escrowId));
+}
+
+// Legacy in-memory jobs map (kept for backward compat during transition)
 const jobs: Map<number, Job> = new Map();
 
 // File store
@@ -81,24 +173,6 @@ function json(res: ServerResponse, data: any, status = 200) {
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   });
   res.end(JSON.stringify(data));
-}
-
-async function syncEscrowFromChain(connection: Connection, escrowId: number): Promise<Job | null> {
-  try {
-    const programId = new PublicKey(PROGRAM_ID);
-    const [escrowPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), new anchor.BN(escrowId).toArrayLike(Buffer, "le", 8)],
-      programId
-    );
-    
-    const accountInfo = await connection.getAccountInfo(escrowPda);
-    if (!accountInfo) return null;
-    
-    // For now, return cached job if exists
-    return jobs.get(escrowId) || null;
-  } catch {
-    return null;
-  }
 }
 
 // Serve static files from public/
@@ -189,8 +263,18 @@ const server = createServer(async (req, res) => {
 
     // === JOBS ===
     if (pathname === "/api/jobs" && req.method === "GET") {
-      const jobList = Array.from(jobs.values()).sort((a, b) => b.createdAt - a.createdAt);
-      return json(res, { jobs: jobList, count: jobList.length });
+      try {
+        const onChainJobs = await fetchAllEscrows();
+        // Merge with any in-memory-only jobs (not yet on chain)
+        const onChainIds = new Set(onChainJobs.map(j => j.escrowId));
+        const memOnlyJobs = Array.from(jobs.values()).filter(j => !onChainIds.has(j.escrowId));
+        const allJobs = [...onChainJobs, ...memOnlyJobs].sort((a, b) => b.escrowId - a.escrowId);
+        return json(res, { jobs: allJobs, count: allJobs.length, source: "chain+memory" });
+      } catch (err: any) {
+        // Fallback to in-memory if chain read fails
+        const jobList = Array.from(jobs.values()).sort((a, b) => b.createdAt - a.createdAt);
+        return json(res, { jobs: jobList, count: jobList.length, source: "memory-fallback", error: err.message });
+      }
     }
 
     if (pathname === "/api/jobs" && req.method === "POST") {
@@ -201,6 +285,9 @@ const server = createServer(async (req, res) => {
         return json(res, { error: "Missing required fields: escrowId, description, buyer" }, 400);
       }
 
+      // Store metadata for chain-read enrichment
+      jobMeta.set(escrowId, { escrowId, description, createdAt: Date.now() });
+
       const job: Job = {
         escrowId,
         description,
@@ -210,6 +297,7 @@ const server = createServer(async (req, res) => {
         sellerCollateral: sellerCollateral || 0,
         state: "created",
         createdAt: Date.now(),
+        onChain: false,
       };
       jobs.set(escrowId, job);
       return json(res, { ok: true, job }, 201);
@@ -217,41 +305,63 @@ const server = createServer(async (req, res) => {
 
     const jobMatch = pathname.match(/^\/api\/jobs\/([^\/]+)$/);
     if (jobMatch && req.method === "GET") {
-      const id = jobMatch[1];
-      const job = jobs.get(id);
-      if (!job) return json(res, { error: "Job not found" }, 404);
-      return json(res, { job });
+      const id = parseInt(jobMatch[1]);
+      if (isNaN(id)) return json(res, { error: "Invalid job ID" }, 400);
+      try {
+        const job = await fetchEscrowById(id);
+        if (job) return json(res, { job, source: "chain" });
+      } catch {}
+      // Fallback to in-memory
+      const memJob = jobs.get(id);
+      if (!memJob) return json(res, { error: "Job not found" }, 404);
+      return json(res, { job: memJob, source: "memory" });
     }
 
     const acceptMatch = pathname.match(/^\/api\/jobs\/(\d+)\/accept$/);
     if (acceptMatch && req.method === "PUT") {
-      const id = acceptMatch[1];
-      const job = jobs.get(id);
+      const id = parseInt(acceptMatch[1]);
+      const body = await parseBody(req);
+      
+      // Try reading current state from chain
+      let job: Job | null = null;
+      try { job = await fetchEscrowById(id); } catch {}
+      if (!job) job = jobs.get(id) || null;
       if (!job) return json(res, { error: "Job not found" }, 404);
       
-      const body = await parseBody(req);
-      job.seller = body.worker || body.seller;
+      // Update in-memory (chain state is authoritative on next GET)
+      job.seller = body.worker || body.seller || job.seller;
       job.state = "accepted";
+      jobs.set(id, job);
       return json(res, { ok: true, job });
     }
 
     const deliverMatch = pathname.match(/^\/api\/jobs\/(\d+)\/deliver$/);
     if (deliverMatch && req.method === "PUT") {
-      const id = deliverMatch[1];
-      const job = jobs.get(id);
+      const id = parseInt(deliverMatch[1]);
+      
+      let job: Job | null = null;
+      try { job = await fetchEscrowById(id); } catch {}
+      if (!job) job = jobs.get(id) || null;
       if (!job) return json(res, { error: "Job not found" }, 404);
       
       const body = await parseBody(req);
       job.deliveryHash = body.hash;
       job.fileId = body.fileId;
+      if (body.fileId) {
+        const meta = jobMeta.get(id);
+        if (meta) meta.fileId = body.fileId;
+      }
       job.state = "delivered";
+      jobs.set(id, job);
       return json(res, { ok: true, job });
     }
 
     const disputeMatch = pathname.match(/^\/api\/jobs\/(\d+)\/dispute$/);
     if (disputeMatch && req.method === "PUT") {
-      const id = disputeMatch[1];
-      const job = jobs.get(id);
+      const id = parseInt(disputeMatch[1]);
+      let job: Job | null = null;
+      try { job = await fetchEscrowById(id); } catch {}
+      if (!job) job = jobs.get(id) || null;
       if (!job) return json(res, { error: "Job not found" }, 404);
       
       const body = await parseBody(req);
