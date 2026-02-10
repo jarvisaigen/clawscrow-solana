@@ -225,40 +225,56 @@ export async function arbitrate(
   votes: ArbitrationResult[];
   unanimous: boolean;
 }> {
-  const primaryModels = [
-    { name: "claude-opus", key: apiKeys.anthropic },
-    { name: "gpt-5.2", key: apiKeys.openai },
-    { name: "gemini-3-pro", key: apiKeys.gemini },
-  ];
-
   const votes: ArbitrationResult[] = [];
-  let failedPrimary = 0;
 
-  // Call primary models in parallel
-  const results = await Promise.allSettled(
-    primaryModels.map((m) =>
-      callArbitrator(m.name, m.key, escrow, buyerArgument, sellerArgument, deliveryContent)
-    )
-  );
+  // Demo mode: if only Grok key exists, use single-model arbitration
+  const hasPrimaryKeys = apiKeys.anthropic && apiKeys.openai && apiKeys.gemini;
 
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      votes.push(result.value);
-    } else {
-      failedPrimary++;
-      console.error("Primary model failed:", result.reason);
+  if (hasPrimaryKeys) {
+    // Production: 3 primary models + Grok fallback
+    const primaryModels = [
+      { name: "claude-opus", key: apiKeys.anthropic },
+      { name: "gpt-5.2", key: apiKeys.openai },
+      { name: "gemini-3-pro", key: apiKeys.gemini },
+    ];
+
+    let failedPrimary = 0;
+    const results = await Promise.allSettled(
+      primaryModels.map((m) =>
+        callArbitrator(m.name, m.key, escrow, buyerArgument, sellerArgument, deliveryContent)
+      )
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        votes.push(result.value);
+      } else {
+        failedPrimary++;
+        console.error("Primary model failed:", result.reason);
+      }
     }
-  }
 
-  // If any primary failed, call fallback (Grok)
-  if (failedPrimary > 0) {
+    // If any primary failed, call fallback (Grok)
+    if (failedPrimary > 0 && apiKeys.grok) {
+      try {
+        const grokResult = await callArbitrator(
+          "grok-4.1", apiKeys.grok, escrow, buyerArgument, sellerArgument, deliveryContent
+        );
+        votes.push(grokResult);
+      } catch (e) {
+        console.error("Fallback (Grok) also failed:", e);
+      }
+    }
+  } else if (apiKeys.grok) {
+    // Demo mode: Grok only
+    console.log("[Arbitration] Demo mode — using Grok 4.1 only");
     try {
       const grokResult = await callArbitrator(
         "grok-4.1", apiKeys.grok, escrow, buyerArgument, sellerArgument, deliveryContent
       );
       votes.push(grokResult);
     } catch (e) {
-      console.error("Fallback (Grok) also failed:", e);
+      console.error("Grok arbitration failed:", e);
     }
   }
 
