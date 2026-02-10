@@ -116,13 +116,9 @@ export function decryptDelivery(
 
 // === Per-Escrow Key Management ===
 // Auto-generates ECIES keypairs for buyer + arbitrator per escrow
-// Keys stored in data/keys/ directory
+// Keys stored in S3 bucket (or local fallback via storage module)
 
-import * as path from "path";
-import * as fs from "fs";
-
-const KEYS_DIR = path.join(__dirname, "../data/keys");
-if (!fs.existsSync(KEYS_DIR)) fs.mkdirSync(KEYS_DIR, { recursive: true });
+import * as storage from "./storage";
 
 interface EscrowKeys {
   buyerPubKey: string;
@@ -131,11 +127,18 @@ interface EscrowKeys {
   arbitratorPrivKey: string;
 }
 
-export function getOrCreateEscrowKeys(escrowId: string): EscrowKeys {
-  const keyFile = path.join(KEYS_DIR, `${escrowId}.json`);
+// In-memory cache to avoid repeated S3 reads within same process
+const keyCache = new Map<string, EscrowKeys>();
+
+export async function getOrCreateEscrowKeys(escrowId: string): Promise<EscrowKeys> {
+  // Check cache first
+  if (keyCache.has(escrowId)) return keyCache.get(escrowId)!;
   
-  if (fs.existsSync(keyFile)) {
-    return JSON.parse(fs.readFileSync(keyFile, "utf-8"));
+  // Check storage
+  const existing = await storage.getJSON<EscrowKeys>(`keys/${escrowId}.json`);
+  if (existing) {
+    keyCache.set(escrowId, existing);
+    return existing;
   }
   
   // Generate new keypairs
@@ -149,20 +152,19 @@ export function getOrCreateEscrowKeys(escrowId: string): EscrowKeys {
     arbitratorPrivKey: Buffer.from(arbKey.getPrivate().toArray("be", 32)).toString("hex"),
   };
   
-  fs.writeFileSync(keyFile, JSON.stringify(keys, null, 2), { mode: 0o600 });
+  await storage.putJSON(`keys/${escrowId}.json`, keys);
+  keyCache.set(escrowId, keys);
   return keys;
 }
 
-export function decryptForBuyer(escrowId: string, encryptedData: Buffer): Buffer {
-  const keys = getOrCreateEscrowKeys(escrowId);
-  // Use eciesjs library (same as files.ts uses for encryption)
+export async function decryptForBuyer(escrowId: string, encryptedData: Buffer): Promise<Buffer> {
+  const keys = await getOrCreateEscrowKeys(escrowId);
   const { decryptWithPrivateKey } = require("./ecies");
   return decryptWithPrivateKey(keys.buyerPrivKey, encryptedData);
 }
 
-export function decryptForArbitrator(escrowId: string, encryptedData: Buffer): Buffer {
-  const keys = getOrCreateEscrowKeys(escrowId);
-  // Use eciesjs library (same as files.ts uses for encryption)
+export async function decryptForArbitrator(escrowId: string, encryptedData: Buffer): Promise<Buffer> {
+  const keys = await getOrCreateEscrowKeys(escrowId);
   const { decryptWithPrivateKey } = require("./ecies");
   return decryptWithPrivateKey(keys.arbitratorPrivKey, encryptedData);
 }

@@ -1,29 +1,19 @@
 /**
  * Persistent storage for agent wallets and jobs
- * Saves to data/ directory as JSON files
- * Survives Railway deploys
+ * Uses S3 bucket (Railway) or local filesystem fallback.
  */
-import * as fs from "fs";
-import * as path from "path";
+import * as storage from "./storage";
 import { Keypair, PublicKey } from "@solana/web3.js";
-
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "../data");
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
-const WALLETS_FILE = path.join(DATA_DIR, "wallets.json");
-const JOBS_FILE = path.join(DATA_DIR, "jobs.json");
 
 // === WALLET PERSISTENCE ===
 
 interface SerializedWallet {
   agentId: string;
-  secretKey: number[];  // Uint8Array as number[]
-  tokenAccount: string; // PublicKey as base58
+  secretKey: number[];
+  tokenAccount: string;
 }
 
-export function saveWallets(wallets: Map<string, { keypair: Keypair; tokenAccount?: PublicKey }>): void {
+export async function saveWallets(wallets: Map<string, { keypair: Keypair; tokenAccount?: PublicKey }>): Promise<void> {
   const data: SerializedWallet[] = [];
   for (const [agentId, w] of wallets) {
     data.push({
@@ -32,16 +22,16 @@ export function saveWallets(wallets: Map<string, { keypair: Keypair; tokenAccoun
       tokenAccount: w.tokenAccount?.toBase58() || "",
     });
   }
-  fs.writeFileSync(WALLETS_FILE, JSON.stringify(data, null, 2));
+  await storage.putJSON("wallets.json", data);
   console.log(`[Persistence] Saved ${data.length} wallets`);
 }
 
-export function loadWallets(): Map<string, { keypair: Keypair; tokenAccount?: PublicKey }> {
+export async function loadWallets(): Promise<Map<string, { keypair: Keypair; tokenAccount?: PublicKey }>> {
   const wallets = new Map<string, { keypair: Keypair; tokenAccount?: PublicKey }>();
-  if (!fs.existsSync(WALLETS_FILE)) return wallets;
+  const data = await storage.getJSON<SerializedWallet[]>("wallets.json");
+  if (!data) return wallets;
   
   try {
-    const data: SerializedWallet[] = JSON.parse(fs.readFileSync(WALLETS_FILE, "utf-8"));
     for (const entry of data) {
       const keypair = Keypair.fromSecretKey(Uint8Array.from(entry.secretKey));
       const tokenAccount = entry.tokenAccount ? new PublicKey(entry.tokenAccount) : undefined;
@@ -75,7 +65,7 @@ export interface PersistedJob {
   updatedAt: number;
 }
 
-export function saveJobs(jobs: Map<number, any>): void {
+export async function saveJobs(jobs: Map<number, any>): Promise<void> {
   const data: PersistedJob[] = [];
   for (const [, job] of jobs) {
     data.push({
@@ -97,16 +87,16 @@ export function saveJobs(jobs: Map<number, any>): void {
       updatedAt: Date.now(),
     });
   }
-  fs.writeFileSync(JOBS_FILE, JSON.stringify(data, null, 2));
+  await storage.putJSON("jobs.json", data);
   console.log(`[Persistence] Saved ${data.length} jobs`);
 }
 
-export function loadJobs(): Map<number, any> {
+export async function loadJobs(): Promise<Map<number, any>> {
   const jobs = new Map<number, any>();
-  if (!fs.existsSync(JOBS_FILE)) return jobs;
+  const data = await storage.getJSON<PersistedJob[]>("jobs.json");
+  if (!data) return jobs;
   
   try {
-    const data: PersistedJob[] = JSON.parse(fs.readFileSync(JOBS_FILE, "utf-8"));
     for (const job of data) {
       jobs.set(job.escrowId, job);
     }

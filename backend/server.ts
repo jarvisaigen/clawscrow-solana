@@ -16,6 +16,7 @@ import { uploadFile, getFileMeta, downloadFile, listFiles } from "./files";
 import { eciesEncrypt, eciesDecrypt, hashContent, encryptForDelivery, decryptDelivery } from "./encryption";
 import { generateKeyPair, decryptWithPrivateKey } from "./ecies";
 import { saveJobs, loadJobs } from "./persistence";
+import * as storage from "./storage";
 import * as fs from "fs";
 import * as path from "path";
 // crypto imported via createHash below
@@ -145,21 +146,9 @@ async function fetchEscrowById(escrowId: number): Promise<Job | null> {
 }
 
 // Legacy in-memory jobs map (kept for backward compat during transition)
-const jobs: Map<number, Job> = loadJobs() as Map<number, Job>;
+let jobs: Map<number, Job> = new Map();
 
-// File store
-interface FileEntry {
-  id: string;
-  escrowId: number;
-  filename: string;
-  contentType: string;
-  encrypted: boolean;
-  hash: string;
-  uploadedAt: number;
-  uploadedBy: string;
-}
-
-const files: Map<string, FileEntry> = new Map();
+// File operations are now in files.ts using storage layer
 
 function parseBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -329,7 +318,7 @@ const server = createServer(async (req, res) => {
         createdAt: Date.now(),
         onChain: false,
       };
-      jobs.set(escrowId, job); saveJobs(jobs);
+      jobs.set(escrowId, job); await saveJobs(jobs);
       return json(res, { ok: true, job }, 201);
     }
 
@@ -389,17 +378,17 @@ const server = createServer(async (req, res) => {
         // Auto-fetch delivery content if not provided
         let deliveryContent = body.deliveryContent || "No content provided";
         if (!body.deliveryContent) {
-          const escrowFiles = listFiles(id);
+          const escrowFiles = await listFiles(id);
           if (escrowFiles.length > 0) {
             const arbFile = escrowFiles.find((f: any) => f.filename.endsWith('.arb'));
             const targetFile = arbFile || escrowFiles[escrowFiles.length - 1];
-            const fileData = downloadFile(targetFile.id);
+            const fileData = await downloadFile(targetFile.id);
             if (fileData?.data) {
               let content: Buffer = fileData.data;
               if (targetFile.encrypted) {
                 try {
-                  const { decryptForArbitrator } = require("./encryption");
-                  content = decryptForArbitrator(String(id), fileData.data);
+                  const { decryptForArbitrator } = await import("./encryption");
+                  content = await decryptForArbitrator(String(id), fileData.data);
                 } catch (e: any) {
                   console.error(`[Arbitration] Decrypt failed: ${e.message}`);
                 }
@@ -429,7 +418,7 @@ const server = createServer(async (req, res) => {
 
         job.state = result.finalRuling === "BuyerWins" ? "resolved_buyer" : "resolved_seller";
 
-        // Persist ruling to file for later retrieval
+        // Persist ruling to storage
         const rulingData = {
           escrowId: id,
           ruling: result,
@@ -437,9 +426,7 @@ const server = createServer(async (req, res) => {
           sellerArgument: body.sellerArgument || "",
           timestamp: Date.now(),
         };
-        const rulingsDir = path.join(__dirname, "../data/rulings");
-        if (!fs.existsSync(rulingsDir)) fs.mkdirSync(rulingsDir, { recursive: true });
-        fs.writeFileSync(path.join(rulingsDir, `${id}.json`), JSON.stringify(rulingData, null, 2));
+        await storage.putJSON(`rulings/${id}.json`, rulingData);
 
         // Submit ruling on-chain to move funds
         let onChainTx: string | null = null;
@@ -458,14 +445,14 @@ const server = createServer(async (req, res) => {
         setTimeout(async () => {
           try {
             const { deleteFilesForEscrow } = await import("./files");
-            deleteFilesForEscrow(id);
+            await deleteFilesForEscrow(id);
           } catch (e: any) {
             console.error(`[Cleanup] Failed: ${e.message}`);
           }
         }, CLEANUP_DELAY_MS);
         console.log(`[Cleanup] Files for escrow #${id} scheduled for deletion in 7 days`);
 
-        saveJobs(jobs);
+        await saveJobs(jobs);
         return json(res, { ok: true, job, arbitration: result, onChainTx });
       }
 
@@ -476,19 +463,20 @@ const server = createServer(async (req, res) => {
     // Get ruling for a specific escrow
     const rulingMatch = pathname.match(/^\/api\/rulings\/(\d+)$/);
     if (rulingMatch && req.method === "GET") {
-      const rulingFile = path.join(__dirname, "../data/rulings", `${rulingMatch[1]}.json`);
-      if (fs.existsSync(rulingFile)) {
-        return json(res, JSON.parse(fs.readFileSync(rulingFile, "utf-8")));
-      }
+      const ruling = await storage.getJSON(`rulings/${rulingMatch[1]}.json`);
+      if (ruling) return json(res, ruling);
       return json(res, { error: "No ruling found" }, 404);
     }
 
     // List all rulings
     if (pathname === "/api/rulings" && req.method === "GET") {
-      const rulingsDir = path.join(__dirname, "../data/rulings");
-      if (!fs.existsSync(rulingsDir)) return json(res, { rulings: [], count: 0 });
-      const files = fs.readdirSync(rulingsDir).filter(f => f.endsWith(".json"));
-      const rulings = files.map(f => JSON.parse(fs.readFileSync(path.join(rulingsDir, f), "utf-8")));
+      const keys = await storage.list("rulings");
+      const rulings: any[] = [];
+      for (const key of keys) {
+        if (!key.endsWith(".json")) continue;
+        const r = await storage.getJSON(key);
+        if (r) rulings.push(r);
+      }
       rulings.sort((a: any, b: any) => b.timestamp - a.timestamp);
       return json(res, { rulings, count: rulings.length });
     }
@@ -510,15 +498,15 @@ const server = createServer(async (req, res) => {
         // Auto-encrypt when escrowId is provided (unless explicitly disabled)
         if (escrowId && !noEncrypt && !encryptForPubKey) {
           const { getOrCreateEscrowKeys } = await import("./encryption");
-          const keys = getOrCreateEscrowKeys(String(escrowId));
+          const keys = await getOrCreateEscrowKeys(String(escrowId));
           
           // Encrypt for buyer
-          const buyerResult = uploadFile({
+          const buyerResult = await uploadFile({
             content, filename, contentType, escrowId, uploadedBy,
             encryptForPubKey: keys.buyerPubKey,
           });
           // Encrypt for arbitrator
-          const arbResult = uploadFile({
+          const arbResult = await uploadFile({
             content,
             filename: `${filename || "delivery"}.arb`,
             contentType, escrowId, uploadedBy,
@@ -533,14 +521,12 @@ const server = createServer(async (req, res) => {
             encryption: "auto-ecies",
           }, 201);
         } else if (encryptForPubKey) {
-          // Client-specified encryption key
-          const result = uploadFile({
+          const result = await uploadFile({
             content, filename, contentType, escrowId, uploadedBy, encryptForPubKey,
           });
           return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta, encryption: "client-ecies" }, 201);
         } else {
-          // No escrowId — store unencrypted
-          const result = uploadFile({
+          const result = await uploadFile({
             content, filename, contentType, escrowId, uploadedBy,
           });
           return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta, encryption: "none" }, 201);
@@ -560,7 +546,7 @@ const server = createServer(async (req, res) => {
       }
 
       try {
-        const result = uploadFile({ content, filename, contentType, escrowId, uploadedBy, encryptForPubKey });
+        const result = await uploadFile({ content, filename, contentType, escrowId, uploadedBy, encryptForPubKey });
         return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, hash: result.contentHash }, 201);
       } catch (err: any) {
         return json(res, { error: `Upload failed: ${err.message}` }, 500);
@@ -570,7 +556,7 @@ const server = createServer(async (req, res) => {
     // List files for an escrow
     if (pathname === "/api/files" && req.method === "GET") {
       const escrowId = url.searchParams.get("escrowId");
-      const fileList = listFiles(escrowId ? parseInt(escrowId) : undefined);
+      const fileList = await listFiles(escrowId ? parseInt(escrowId) : undefined);
       return json(res, { files: fileList, count: fileList.length });
     }
 
@@ -583,10 +569,9 @@ const server = createServer(async (req, res) => {
       
       if (!escrowId) return json(res, { error: "Missing ?escrowId= parameter" }, 400);
       
-      const file = downloadFile(fileId);
+      const file = await downloadFile(fileId);
       if (!file) return json(res, { error: "File not found" }, 404);
       if (!file.meta.encrypted) {
-        // Not encrypted — serve directly
         res.writeHead(200, {
           "Content-Type": file.meta.contentType || "text/plain",
           "Content-Disposition": `inline; filename="${file.meta.filename}"`,
@@ -598,8 +583,8 @@ const server = createServer(async (req, res) => {
       try {
         const { decryptForBuyer, decryptForArbitrator } = await import("./encryption");
         const decrypted = role === "arbitrator"
-          ? decryptForArbitrator(escrowId, file.data)
-          : decryptForBuyer(escrowId, file.data);
+          ? await decryptForArbitrator(escrowId, file.data)
+          : await decryptForBuyer(escrowId, file.data);
         
         const origFilename = file.meta.filename.replace(/\.arb$/, "");
         res.writeHead(200, {
@@ -626,7 +611,7 @@ const server = createServer(async (req, res) => {
       if (!fileId || !privateKey) {
         return json(res, { error: "Missing fileId or privateKey" }, 400);
       }
-      const file = downloadFile(fileId);
+      const file = await downloadFile(fileId);
       if (!file) return json(res, { error: "File not found" }, 404);
       if (!file.meta.encrypted) {
         return json(res, { error: "File is not encrypted" }, 400);
@@ -651,7 +636,7 @@ const server = createServer(async (req, res) => {
       const raw = url.searchParams.get("raw") === "true";
 
       if (raw) {
-        const file = downloadFile(fileId);
+        const file = await downloadFile(fileId);
         if (!file) return json(res, { error: "File not found" }, 404);
         res.writeHead(200, {
           "Content-Type": file.meta.encrypted ? "application/octet-stream" : file.meta.contentType,
@@ -663,7 +648,7 @@ const server = createServer(async (req, res) => {
         return res.end(file.data);
       }
 
-      const meta = getFileMeta(fileId);
+      const meta = await getFileMeta(fileId);
       if (!meta) return json(res, { error: "File not found" }, 404);
       return json(res, { file: meta });
     }
@@ -748,7 +733,7 @@ const server = createServer(async (req, res) => {
 
     // === HEALTH ===
     if (pathname === "/health") {
-      return json(res, { status: "ok", uptime: process.uptime(), jobs: jobs.size, files: files.size });
+      return json(res, { status: "ok", uptime: process.uptime(), jobs: jobs.size, storage: storage.storageInfo.useS3 ? "s3" : "local" });
     }
 
     // Try static files
@@ -762,9 +747,20 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`🦞 Clawscrow API running on port ${PORT}`);
-  console.log(`   Network: Solana Devnet`);
-  console.log(`   Program: ${PROGRAM_ID}`);
-  console.log(`   Docs: http://localhost:${PORT}/api/instructions`);
-});
+// Async startup: load persisted data then start server
+(async () => {
+  try {
+    jobs = await loadJobs() as Map<number, Job>;
+    console.log(`[Startup] Loaded ${jobs.size} jobs from storage`);
+  } catch (e: any) {
+    console.error(`[Startup] Failed to load jobs: ${e.message}`);
+  }
+  
+  server.listen(PORT, () => {
+    console.log(`🦞 Clawscrow API running on port ${PORT}`);
+    console.log(`   Network: Solana Devnet`);
+    console.log(`   Program: ${PROGRAM_ID}`);
+    console.log(`   Storage: ${storage.storageInfo.useS3 ? `S3 (${storage.storageInfo.bucket})` : 'Local filesystem'}`);
+    console.log(`   Docs: http://localhost:${PORT}/api/instructions`);
+  });
+})();
