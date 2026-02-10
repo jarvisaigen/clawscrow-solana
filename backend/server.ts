@@ -87,7 +87,8 @@ function parseEscrowAccount(data: Buffer, meta?: JobMeta): Job {
   const sellerCollateral = Number(data.readBigUInt64LE(128));
   const descLen = Math.min(data.readUInt32LE(144), 500);
   const description = data.subarray(148, 148 + descLen).toString("utf-8");
-  const stateVal = data[648];
+  // Borsh serializes string at actual length, state follows dynamically
+  const stateVal = data[148 + descLen];
   const state = STATE_MAP[stateVal] || `unknown(${stateVal})`;
   
   const sellerStr = seller === "11111111111111111111111111111111" ? undefined : seller;
