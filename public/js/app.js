@@ -293,6 +293,7 @@ const App = (() => {
           filesEl.innerHTML = files.length > 0
             ? '<h4 style="margin:0.5rem 0">📁 Deliverables</h4>' + files.map(f =>
                 `<div class="file-item"><span>📄 ${f.filename || f.id}</span>
+                 ${f.encrypted ? `<a href="${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer" target="_blank" class="btn btn-sm btn-primary">🔓 Decrypt</a>` : ''}
                  <a href="${CONFIG.API_URL}/api/files/${f.id}?raw=true" target="_blank" class="btn btn-sm btn-outline">⬇ Download</a></div>`
               ).join('')
             : '<p style="color:var(--text-muted);font-size:0.85rem">No files uploaded yet</p>';
