@@ -428,6 +428,14 @@ const server = createServer(async (req, res) => {
           console.error(`[Arbitration] On-chain ruling failed: ${e.message}`);
         }
 
+        // Privacy cleanup: delete delivery files after resolution
+        try {
+          const { deleteFilesForEscrow } = await import("./files");
+          deleteFilesForEscrow(id);
+        } catch (e: any) {
+          console.error(`[Cleanup] Failed: ${e.message}`);
+        }
+
         saveJobs(jobs);
         return json(res, { ok: true, job, arbitration: result, onChainTx });
       }

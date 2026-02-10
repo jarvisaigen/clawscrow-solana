@@ -141,3 +141,26 @@ export function listFiles(escrowId?: number): FileMeta[] {
   }
   return all;
 }
+
+/**
+ * Delete all files for an escrow (privacy cleanup after resolve)
+ */
+export function deleteFilesForEscrow(escrowId: number): number {
+  const files = listFiles(escrowId);
+  let deleted = 0;
+  for (const meta of files) {
+    try {
+      const filePath = path.join(DATA_DIR, meta.id);
+      const metaPath = path.join(META_DIR, `${meta.id}.json`);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+      deleted++;
+    } catch {}
+  }
+  // Also delete ECIES keys for this escrow
+  const keyPath = path.join(DATA_DIR, "keys", `${escrowId}.json`);
+  if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath);
+  
+  console.log(`[Cleanup] Deleted ${deleted} files + keys for escrow #${escrowId}`);
+  return deleted;
+}
