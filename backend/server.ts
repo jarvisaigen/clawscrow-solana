@@ -269,9 +269,9 @@ const server = createServer(async (req, res) => {
           "POST /api/ecies/decrypt": "Server-side decrypt (fileId + privateKey)",
         },
         arbitration: {
-          models: ["Claude Opus 4.6", "GPT 5.2", "Gemini 3 Pro"],
-          fallback: "Grok 4.1",
-          mechanism: "3 primary models vote, majority wins. If any primary fails, Grok replaces it. Always odd number of votes.",
+          demo: "Grok 4.1 (active in this demo)",
+          production: ["Claude Opus 4.6", "GPT 5.2", "Gemini 3 Pro", "Grok 4.1"],
+          mechanism: "Demo: single model (Grok 4.1). Production: 3 primary models vote, majority wins. If any primary fails, Grok replaces it. Always odd number of votes.",
           fee: "1% of buyer collateral",
         },
       });
