@@ -42,6 +42,9 @@ const App = (() => {
   let currentFilter = 'all';
   const startTime = Date.now();
 
+  // ─── Buffer polyfill for browser ───
+  const toBuffer = (str) => new TextEncoder().encode(str);
+
   // ─── Borsh Helpers ───
   function u64LE(value) {
     const buf = new ArrayBuffer(8);
@@ -70,14 +73,14 @@ const App = (() => {
   // ─── PDA Derivation (matches on-chain program) ───
   function findEscrowPDA(escrowId) {
     return PublicKey.findProgramAddressSync(
-      [Buffer.from('escrow'), u64LE(escrowId)],
+      [toBuffer('escrow'), u64LE(escrowId)],
       CONFIG.PROGRAM_ID
     );
   }
 
   function findVaultPDA(escrowId) {
     return PublicKey.findProgramAddressSync(
-      [Buffer.from('vault'), u64LE(escrowId)],
+      [toBuffer('vault'), u64LE(escrowId)],
       CONFIG.PROGRAM_ID
     );
   }
@@ -367,7 +370,7 @@ const App = (() => {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system_program
         { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },      // rent
       ],
-      data: Buffer.from(data),
+      data: data,
     });
 
     const sig = await sendTx(ix);
@@ -403,7 +406,7 @@ const App = (() => {
         { pubkey: sellerAta, isSigner: false, isWritable: true },                 // seller_token
         { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },  // token_program
       ],
-      data: Buffer.from(data),
+      data: data,
     });
 
     const sig = await sendTx(ix);
@@ -490,7 +493,7 @@ const App = (() => {
           { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false }, // seller
           { pubkey: escrowPda, isSigner: false, isWritable: true },               // escrow
         ],
-        data: Buffer.from(data),
+        data: data,
       });
 
       const sig = await sendTx(ix);
@@ -540,7 +543,7 @@ const App = (() => {
         { pubkey: sellerAta, isSigner: false, isWritable: true },                 // seller_token
         { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },  // token_program
       ],
-      data: Buffer.from(data),
+      data: data,
     });
 
     const sig = await sendTx(ix);
@@ -566,7 +569,7 @@ const App = (() => {
         { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false }, // buyer
         { pubkey: escrowPda, isSigner: false, isWritable: true },               // escrow
       ],
-      data: Buffer.from(data),
+      data: data,
     });
 
     const sig = await sendTx(ix);
