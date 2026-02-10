@@ -119,7 +119,7 @@ export async function initOnChain(): Promise<void> {
   }
 
   // Load persisted wallets
-  const saved = loadWallets();
+  const saved = await loadWallets();
   for (const [id, w] of saved) {
     if (!agentWallets.has(id)) agentWallets.set(id, w);
   }
@@ -154,7 +154,7 @@ export async function registerAgent(agentId: string): Promise<{ publicKey: strin
   await mintTo(connection, treasuryKeypair, usdcMint, tokenAccount, treasuryKeypair.publicKey, 100_000); // 0.1 USDC
 
   agentWallets.set(agentId, { keypair: kp, tokenAccount });
-  saveWallets(agentWallets);
+  await saveWallets(agentWallets);
   console.log(`  Agent ${agentId} registered:`, kp.publicKey.toBase58());
   return { publicKey: kp.publicKey.toBase58(), funded: true };
 }
