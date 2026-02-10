@@ -19,6 +19,7 @@
       <div class="nav-links" id="navLinks">
         <a href="#" class="nav-tab active" data-tab="dashboard" onclick="switchTab('dashboard');return false;">Dashboard</a>
         <a href="#" class="nav-tab" data-tab="marketplace" onclick="switchTab('marketplace');return false;">Marketplace</a>
+        <a href="#" class="nav-tab" data-tab="myescrows" onclick="switchTab('myescrows');return false;">My Escrows</a>
         <a href="#" class="nav-tab" data-tab="agents" onclick="switchTab('agents');return false;">For Agents</a>
         <a href="#" class="nav-tab" data-tab="decisions" onclick="switchTab('decisions');return false;">Decisions</a>
         <a href="#" class="nav-tab" data-tab="architecture" onclick="switchTab('architecture');return false;">Architecture</a>
@@ -175,9 +176,29 @@
           <h2 class="section-title" style="margin-bottom:0">Active Escrows</h2>
           <button class="btn btn-primary" onclick="App.showCreateForm()">🦞 Create Escrow</button>
         </div>
+        <div style="margin-bottom:1rem">
+          <input type="text" id="escrowSearch" placeholder="🔍 Search escrows..." oninput="App.searchEscrows(this.value)" style="width:100%;padding:0.6rem 1rem;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit">
+        </div>
         <div id="escrowList" class="escrow-grid">
           <p class="empty-state">No active escrows</p>
         </div>
+        <div id="escrowPagination" style="display:flex;justify-content:center;align-items:center;gap:1rem;margin-top:1rem"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- TAB: MY ESCROWS -->
+  <div class="tab-panel" id="tab-myescrows">
+    <section class="section">
+      <div class="container">
+        <h2 class="section-title">My Escrows</h2>
+        <p class="section-desc">Your escrows as buyer or seller.</p>
+        <div id="myEscrowFilters" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+          <button class="btn btn-sm btn-primary" onclick="App.filterMyEscrows('all')">All</button>
+          <button class="btn btn-sm btn-outline" onclick="App.filterMyEscrows('buyer')">As Buyer</button>
+          <button class="btn btn-sm btn-outline" onclick="App.filterMyEscrows('seller')">As Seller</button>
+        </div>
+        <div id="myEscrowList"></div>
       </div>
     </section>
   </div>

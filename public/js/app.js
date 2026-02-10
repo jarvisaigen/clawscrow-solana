@@ -52,6 +52,10 @@ const App = (() => {
   let escrows = [];
   let decisions = [];
   let currentFilter = 'all';
+  let currentPage = 1;
+  const PAGE_SIZE = 20;
+  let searchQuery = '';
+  let myEscrowFilter = 'all';
   const startTime = Date.now();
 
   // ─── Buffer polyfill for browser ───
@@ -242,28 +246,60 @@ const App = (() => {
   }
 
   // ─── Render ───
+  function escrowCard(e) {
+    const noSeller = !e.seller || e.seller === '11111111111111111111111111111111';
+    return `
+    <div class="escrow-card" onclick="App.openJob(${e.escrowId})">
+      <h4>Escrow #${e.escrowId} <span class="escrow-status status-${e.state}">${stateLabel(e.state)}</span></h4>
+      ${e.description ? `<p class="escrow-desc">${e.description.length > 120 ? e.description.slice(0, 120) + '…' : e.description}</p>` : ''}
+      <div class="escrow-meta">👤 <a href="https://solscan.io/account/${e.buyer}?cluster=devnet" target="_blank" onclick="event.stopPropagation()">${trunc(e.buyer)}</a> → ${noSeller ? '<em>open</em>' : `<a href="https://solscan.io/account/${e.seller}?cluster=devnet" target="_blank" onclick="event.stopPropagation()">${trunc(e.seller)}</a>`}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <span class="escrow-amount">$${(e.paymentAmount / 1e6).toLocaleString(undefined, {minimumFractionDigits: 2})} USDC</span>
+        <span style="font-size:0.75rem;color:var(--text-muted)">${timeAgo(e.createdAt)}</span>
+      </div>
+    </div>`;
+  }
+
   function renderEscrows() {
     const list = document.getElementById('escrowList');
     if (!list) return;
-    const filtered = currentFilter === 'all' ? escrows : escrows.filter(e => e.state === currentFilter);
+    let filtered = currentFilter === 'all' ? escrows : escrows.filter(e => e.state === currentFilter);
+    if (searchQuery) filtered = filtered.filter(e => (e.description || '').toLowerCase().includes(searchQuery.toLowerCase()));
     if (!filtered.length) {
       list.innerHTML = `<p class="empty-state">No escrows found. ${publicKey ? 'Create one or wait for agents!' : 'Connect Phantom wallet to interact.'}</p>`;
+      document.getElementById('escrowPagination') && (document.getElementById('escrowPagination').innerHTML = '');
       return;
     }
-    list.innerHTML = filtered.map(e => {
-      const noSeller = !e.seller || e.seller === '11111111111111111111111111111111';
-      return `
-      <div class="escrow-card" onclick="App.openJob(${e.escrowId})">
-        <h4>Escrow #${e.escrowId} <span class="escrow-status status-${e.state}">${stateLabel(e.state)}</span></h4>
-        ${e.description ? `<p class="escrow-desc">${e.description.length > 120 ? e.description.slice(0, 120) + '…' : e.description}</p>` : ''}
-        <div class="escrow-meta">👤 <a href="https://solscan.io/account/${e.buyer}?cluster=devnet" target="_blank" onclick="event.stopPropagation()">${trunc(e.buyer)}</a> → ${noSeller ? '<em>open</em>' : `<a href="https://solscan.io/account/${e.seller}?cluster=devnet" target="_blank" onclick="event.stopPropagation()">${trunc(e.seller)}</a>`}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-          <span class="escrow-amount">$${(e.paymentAmount / 1e6).toLocaleString(undefined, {minimumFractionDigits: 2})} USDC</span>
-          <span style="font-size:0.75rem;color:var(--text-muted)">${timeAgo(e.createdAt)}</span>
-        </div>
-      </div>`;
-    }).join('');
+    const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + PAGE_SIZE);
+    list.innerHTML = pageItems.map(escrowCard).join('');
+    const pag = document.getElementById('escrowPagination');
+    if (pag) {
+      pag.innerHTML = totalPages > 1 ? `
+        <button class="btn btn-sm btn-outline" onclick="App.escrowPage(-1)" ${currentPage <= 1 ? 'disabled' : ''}>← Prev</button>
+        <span style="color:var(--text-muted)">Page ${currentPage} of ${totalPages}</span>
+        <button class="btn btn-sm btn-outline" onclick="App.escrowPage(1)" ${currentPage >= totalPages ? 'disabled' : ''}>Next →</button>
+      ` : '';
+    }
   }
+
+  function searchEscrows(query) { searchQuery = query; currentPage = 1; renderEscrows(); }
+  function escrowPage(delta) { currentPage += delta; renderEscrows(); }
+
+  function renderMyEscrows() {
+    const list = document.getElementById('myEscrowList');
+    if (!list) return;
+    if (!publicKey) { list.innerHTML = '<p class="empty-state">Connect Phantom wallet to see your escrows</p>'; return; }
+    let mine = escrows.filter(e => e.buyer === publicKey || e.seller === publicKey);
+    if (myEscrowFilter === 'buyer') mine = mine.filter(e => e.buyer === publicKey);
+    if (myEscrowFilter === 'seller') mine = mine.filter(e => e.seller === publicKey);
+    if (!mine.length) { list.innerHTML = '<p class="empty-state">No escrows found for your wallet</p>'; return; }
+    list.innerHTML = mine.map(escrowCard).join('');
+  }
+
+  function filterMyEscrows(filter) { myEscrowFilter = filter; renderMyEscrows(); }
 
   function renderDecisions(filter = 'all') {
     const el = document.getElementById('decisionLog');
@@ -552,6 +588,7 @@ const App = (() => {
 
   async function approveJob(escrowId) {
     if (!publicKey) { toast('Connect wallet first', 'error'); return; }
+    if (!confirm('⚠️ Download the delivery before approving — files will be deleted from server after resolution.\n\nHave you reviewed and downloaded the work?')) return;
 
     const job = escrows.find(e => e.escrowId == escrowId);
     if (!job) return;
@@ -758,7 +795,7 @@ const App = (() => {
     await loadConfig();
     loadEscrows();
     loadDecisions();
-    setInterval(() => { loadEscrows(); loadDecisions(); }, 10000);
+    setInterval(() => { loadEscrows(); loadDecisions(); renderMyEscrows(); }, 10000);
     // Phantom auto-connect
     if (window.solana?.isPhantom && window.solana.isConnected) {
       window.solana.connect({ onlyIfTrusted: true }).then(resp => {
@@ -777,6 +814,6 @@ const App = (() => {
   return {
     connectWallet, showCreateForm, acceptJob, deliverJob, submitDelivery,
     approveJob, disputeJob, filterEscrows, openJob, closeModal,
-    copyCode, submitCreate,
+    copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows,
   };
 })();
