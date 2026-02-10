@@ -491,6 +491,45 @@ const server = createServer(async (req, res) => {
       return json(res, { files: fileList, count: fileList.length });
     }
 
+    // Decrypt file for buyer (server-managed keys)
+    const decryptMatch = pathname.match(/^\/api\/files\/([a-f0-9-]+)\/decrypt$/);
+    if (decryptMatch && req.method === "GET") {
+      const fileId = decryptMatch[1];
+      const escrowId = url.searchParams.get("escrowId");
+      const role = url.searchParams.get("role") || "buyer";
+      
+      if (!escrowId) return json(res, { error: "Missing ?escrowId= parameter" }, 400);
+      
+      const file = downloadFile(fileId);
+      if (!file) return json(res, { error: "File not found" }, 404);
+      if (!file.meta.encrypted) {
+        // Not encrypted — serve directly
+        res.writeHead(200, {
+          "Content-Type": file.meta.contentType || "text/plain",
+          "Content-Disposition": `inline; filename="${file.meta.filename}"`,
+          "Access-Control-Allow-Origin": "*",
+        });
+        return res.end(file.data);
+      }
+      
+      try {
+        const { decryptForBuyer, decryptForArbitrator } = await import("./encryption");
+        const decrypted = role === "arbitrator"
+          ? decryptForArbitrator(escrowId, file.data)
+          : decryptForBuyer(escrowId, file.data);
+        
+        const origFilename = file.meta.filename.replace(/\.arb$/, "");
+        res.writeHead(200, {
+          "Content-Type": file.meta.contentType || "text/plain",
+          "Content-Disposition": `inline; filename="${origFilename}"`,
+          "Access-Control-Allow-Origin": "*",
+        });
+        return res.end(decrypted);
+      } catch (err: any) {
+        return json(res, { error: `Decryption failed: ${err.message}` }, 500);
+      }
+    }
+
     // Generate keypair (for demo/testing — DO NOT use in production)
     if (pathname === "/api/ecies/keypair" && req.method === "GET") {
       const kp = generateKeyPair();
