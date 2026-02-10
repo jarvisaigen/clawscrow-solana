@@ -391,11 +391,36 @@ const server = createServer(async (req, res) => {
           body.buyerArgument || "Work was not delivered as described",
           body.sellerArgument || "Work was delivered according to spec",
           body.deliveryContent || (() => {
-            // Auto-fetch delivery content from stored files
+            // Auto-fetch delivery content — decrypt arbitrator copy first
             const escrowFiles = listFiles(id);
             if (escrowFiles.length > 0) {
-              const fileData = downloadFile(escrowFiles[escrowFiles.length - 1].id);
-              return fileData?.data?.toString("utf8")?.slice(0, 5000) || "No content provided";
+              // Prefer .arb file (arbitrator's copy)
+              const arbFile = escrowFiles.find(f => f.filename.endsWith('.arb'));
+              const targetFile = arbFile || escrowFiles[escrowFiles.length - 1];
+              const fileData = downloadFile(targetFile.id);
+              if (fileData?.data) {
+                let content: Buffer = fileData.data;
+                // Decrypt if encrypted
+                if (targetFile.encrypted) {
+                  try {
+                    const { decryptForArbitrator } = await import("./encryption");
+                    content = decryptForArbitrator(String(id), fileData.data);
+                  } catch (e: any) {
+                    console.error(`[Arbitration] Decrypt failed: ${e.message}`);
+                  }
+                }
+                // If PDF, note it in the content for Grok
+                if (targetFile.filename.toLowerCase().includes('.pdf')) {
+                  const textContent = content.toString("utf8").slice(0, 5000);
+                  // Check if it looks like readable text
+                  const printableRatio = textContent.split('').filter(c => c.charCodeAt(0) >= 32 && c.charCodeAt(0) < 127).length / textContent.length;
+                  if (printableRatio > 0.7) {
+                    return textContent;
+                  }
+                  return `[PDF file: ${targetFile.filename}, size: ${content.length} bytes. PDF binary content cannot be read as text. Judge based on file metadata, description, and arguments.]`;
+                }
+                return content.toString("utf8").slice(0, 5000);
+              }
             }
             return "No content provided";
           })(),
