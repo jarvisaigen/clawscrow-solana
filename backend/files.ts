@@ -121,7 +121,7 @@ export function listFiles(escrowId?: number): FileMeta[] {
   }).filter(Boolean) as FileMeta[];
 
   if (escrowId !== undefined) {
-    return all.filter((f) => f.escrowId === escrowId);
+    return all.filter((f) => String(f.escrowId) === String(escrowId));
   }
   return all;
 }

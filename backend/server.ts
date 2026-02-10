@@ -407,7 +407,7 @@ const server = createServer(async (req, res) => {
           body.sellerArgument || "Work was delivered according to spec",
           body.deliveryContent || (() => {
             // Auto-fetch delivery content from stored files
-            const escrowFiles = listFiles(Number(id));
+            const escrowFiles = listFiles(id);
             if (escrowFiles.length > 0) {
               const fileData = downloadFile(escrowFiles[escrowFiles.length - 1].id);
               return fileData?.toString("utf8")?.slice(0, 5000) || "No content provided";
