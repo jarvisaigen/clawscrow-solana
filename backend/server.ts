@@ -410,7 +410,7 @@ const server = createServer(async (req, res) => {
 
         const result = await arbitrate(
           escrowData,
-          body.buyerArgument || "Work was not delivered as described",
+          body.buyerArgument || body.reason || "Work was not delivered as described",
           body.sellerArgument || "Work was delivered according to spec",
           deliveryContent,
           apiKeys
@@ -422,7 +422,7 @@ const server = createServer(async (req, res) => {
         const rulingData = {
           escrowId: id,
           ruling: result,
-          buyerArgument: body.buyerArgument || "",
+          buyerArgument: body.buyerArgument || body.reason || "",
           sellerArgument: body.sellerArgument || "",
           timestamp: Date.now(),
         };
