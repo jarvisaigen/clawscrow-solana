@@ -41,9 +41,12 @@ const App = (() => {
     const sellerCollateral = buf.readBigUInt64LE(128);
     const descLen = Math.min(buf.readUInt32LE(144), 500);
     const description = buf.slice(148, 148 + descLen).toString('utf-8');
-    const state = buf.readUInt8(648);
-    const createdAt = Number(buf.readBigInt64LE(681));
-    const deliveredAt = Number(buf.readBigInt64LE(689));
+    // Borsh string is variable-length — offsets after description are dynamic
+    let off = 148 + descLen;
+    const state = buf.readUInt8(off); off += 1;
+    off += 32; // delivery_hash
+    const createdAt = Number(buf.readBigInt64LE(off)); off += 8;
+    const deliveredAt = Number(buf.readBigInt64LE(off)); off += 8;
     return {
       pubkey, escrowId: Number(escrowId),
       buyer: buyer.toBase58(), seller: seller.toBase58(),
