@@ -175,18 +175,40 @@ const App = (() => {
 
   async function loadDecisions() {
     try {
-      const res = await fetch(`${CONFIG.API_URL}/api/jobs`);
-      if (res.ok) {
-        const data = await res.json();
-        decisions = (data.jobs || []).filter(j =>
-          j.state === 'disputed' || j.state === 'resolved_buyer' || j.state === 'resolved_seller'
-        ).map(j => ({
-          escrowId: j.escrowId,
-          date: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : '',
-          verdict: j.state?.includes('buyer') ? 'buyer' : j.state?.includes('seller') ? 'seller' : 'pending',
-          amount: (j.paymentAmount || 0) / 1e6,
-          reasoning: j.arbitration?.reasoning || '',
-        }));
+      // Try rulings endpoint first (has Grok reasoning)
+      const rulingsRes = await fetch(`${CONFIG.API_URL}/api/rulings`).catch(() => null);
+      if (rulingsRes?.ok) {
+        const rulingsData = await rulingsRes.json();
+        const rulings = rulingsData.rulings || [];
+        if (rulings.length > 0) {
+          decisions = rulings.map(r => ({
+            escrowId: r.escrowId,
+            date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '',
+            verdict: r.finalRuling?.toLowerCase().includes('buyer') ? 'buyer' : 'seller',
+            amount: (r.paymentAmount || 0) / 1e6,
+            reasoning: r.reasoning || r.analysis || '',
+            confidence: r.confidence || null,
+            model: r.model || 'Grok 4.1',
+          }));
+        }
+      }
+      // Fallback: get from jobs if no rulings endpoint
+      if (!decisions.length) {
+        const res = await fetch(`${CONFIG.API_URL}/api/jobs`);
+        if (res.ok) {
+          const data = await res.json();
+          decisions = (data.jobs || []).filter(j =>
+            j.state === 'disputed' || j.state === 'resolved_buyer' || j.state === 'resolved_seller'
+          ).map(j => ({
+            escrowId: j.escrowId,
+            date: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : '',
+            verdict: j.state?.includes('buyer') ? 'buyer' : j.state?.includes('seller') ? 'seller' : 'pending',
+            amount: (j.paymentAmount || 0) / 1e6,
+            reasoning: j.ruling?.reasoning || '',
+            confidence: j.ruling?.confidence || null,
+            model: j.ruling?.model || '',
+          }));
+        }
       }
     } catch { decisions = []; }
     renderDecisions();
@@ -245,9 +267,11 @@ const App = (() => {
           <span class="decision-id">Escrow #${d.escrowId}</span>
           <span class="decision-verdict ${d.verdict === 'buyer' ? 'verdict-buyer' : 'verdict-seller'}">${d.verdict === 'buyer' ? '✗ Buyer Wins' : '✓ Seller Wins'}</span>
           <span class="decision-amount">$${d.amount.toFixed(2)} USDC</span>
+          ${d.confidence ? `<span class="decision-confidence" title="AI Confidence">${(d.confidence * 100).toFixed(0)}%</span>` : ''}
           <span class="decision-date">${d.date}</span>
         </div>
-        ${d.reasoning ? `<div class="decision-reasoning">${d.reasoning}</div>` : ''}
+        ${d.model ? `<div style="font-size:0.75rem;color:var(--accent);margin:0.25rem 0">🤖 ${d.model}</div>` : ''}
+        ${d.reasoning ? `<div class="decision-reasoning">${d.reasoning}</div>` : '<div class="decision-reasoning" style="color:var(--text-muted)">Reasoning not available (pre-persistence ruling)</div>'}
       </div>
     `).join('');
   }
