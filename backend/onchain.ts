@@ -72,12 +72,32 @@ export async function initOnChain(): Promise<void> {
   await fundWallet(arbitratorKeypair.publicKey, 0.01);
   console.log("  Arbitrator:", arbitratorKeypair.publicKey.toBase58());
 
-  // Create test USDC mint
-  try {
-    usdcMint = await createMint(connection, treasuryKeypair, treasuryKeypair.publicKey, null, 6);
-    console.log("  USDC Mint:", usdcMint.toBase58());
-  } catch (e: any) {
-    console.error("  ⚠️ Failed to create USDC mint:", e.message);
+  // USDC mint — reuse from env or create new
+  const envMint = process.env.USDC_MINT;
+  if (envMint) {
+    try {
+      usdcMint = new PublicKey(envMint);
+      // Verify it exists on-chain
+      const mintInfo = await connection.getAccountInfo(usdcMint);
+      if (mintInfo) {
+        console.log("  USDC Mint (env):", usdcMint.toBase58());
+      } else {
+        throw new Error("Mint not found on-chain");
+      }
+    } catch (e: any) {
+      console.log("  ⚠️ USDC_MINT env invalid:", e.message, "— creating new");
+      usdcMint = await createMint(connection, treasuryKeypair, treasuryKeypair.publicKey, null, 6);
+      console.log("  USDC Mint (new):", usdcMint.toBase58());
+      console.log("  💡 Set USDC_MINT=" + usdcMint.toBase58() + " in env to persist");
+    }
+  } else {
+    try {
+      usdcMint = await createMint(connection, treasuryKeypair, treasuryKeypair.publicKey, null, 6);
+      console.log("  USDC Mint (new):", usdcMint.toBase58());
+      console.log("  💡 Set USDC_MINT=" + usdcMint.toBase58() + " in env to persist");
+    } catch (e: any) {
+      console.error("  ⚠️ Failed to create USDC mint:", e.message);
+    }
   }
 
   initialized = true;
