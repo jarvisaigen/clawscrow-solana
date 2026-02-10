@@ -391,6 +391,18 @@ const server = createServer(async (req, res) => {
 
         job.state = result.finalRuling === "BuyerWins" ? "resolved_buyer" : "resolved_seller";
 
+        // Persist ruling to file for later retrieval
+        const rulingData = {
+          escrowId: id,
+          ruling: result,
+          buyerArgument: body.buyerArgument || "",
+          sellerArgument: body.sellerArgument || "",
+          timestamp: Date.now(),
+        };
+        const rulingsDir = path.join(__dirname, "../data/rulings");
+        if (!fs.existsSync(rulingsDir)) fs.mkdirSync(rulingsDir, { recursive: true });
+        fs.writeFileSync(path.join(rulingsDir, `${id}.json`), JSON.stringify(rulingData, null, 2));
+
         // Submit ruling on-chain to move funds
         let onChainTx: string | null = null;
         try {
@@ -408,6 +420,27 @@ const server = createServer(async (req, res) => {
       }
 
       return json(res, { ok: true, job, arbitration: null, message: "API keys not configured — manual arbitration required" });
+    }
+
+    // === RULINGS ===
+    // Get ruling for a specific escrow
+    const rulingMatch = pathname.match(/^\/api\/rulings\/(\d+)$/);
+    if (rulingMatch && req.method === "GET") {
+      const rulingFile = path.join(__dirname, "../data/rulings", `${rulingMatch[1]}.json`);
+      if (fs.existsSync(rulingFile)) {
+        return json(res, JSON.parse(fs.readFileSync(rulingFile, "utf-8")));
+      }
+      return json(res, { error: "No ruling found" }, 404);
+    }
+
+    // List all rulings
+    if (pathname === "/api/rulings" && req.method === "GET") {
+      const rulingsDir = path.join(__dirname, "../data/rulings");
+      if (!fs.existsSync(rulingsDir)) return json(res, { rulings: [], count: 0 });
+      const files = fs.readdirSync(rulingsDir).filter(f => f.endsWith(".json"));
+      const rulings = files.map(f => JSON.parse(fs.readFileSync(path.join(rulingsDir, f), "utf-8")));
+      rulings.sort((a: any, b: any) => b.timestamp - a.timestamp);
+      return json(res, { rulings, count: rulings.length });
     }
 
     // === FILES (ECIES-enabled, auto-encrypt by default) ===
