@@ -23,7 +23,7 @@
         <a href="#" class="nav-tab" data-tab="decisions" onclick="switchTab('decisions');return false;">Decisions</a>
         <a href="#" class="nav-tab" data-tab="architecture" onclick="switchTab('architecture');return false;">Architecture</a>
       </div>
-      <button id="connectWallet" class="btn btn-primary btn-sm">
+      <button id="connectWallet" class="btn btn-primary btn-sm" style="cursor:pointer">
         <span id="walletText">Connect Wallet</span>
       </button>
     </div>
@@ -171,7 +171,10 @@
   <div class="tab-panel" id="tab-marketplace">
     <section id="marketplace" class="section">
       <div class="container">
-        <h2 class="section-title">Active Escrows</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+          <h2 class="section-title" style="margin-bottom:0">Active Escrows</h2>
+          <button class="btn btn-primary" onclick="App.showCreateForm()">🦞 Create Escrow</button>
+        </div>
         <div id="escrowList" class="escrow-grid">
           <p class="empty-state">No active escrows</p>
         </div>
