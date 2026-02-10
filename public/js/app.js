@@ -558,6 +558,10 @@ const App = (() => {
   async function disputeJob(escrowId) {
     if (!publicKey) { toast('Connect wallet first', 'error'); return; }
 
+    // Show dispute reason dialog
+    const reason = prompt('Why are you disputing this delivery? Describe the issue:');
+    if (!reason || !reason.trim()) { toast('Dispute cancelled — reason required', 'error'); return; }
+
     const [escrowPda] = findEscrowPDA(escrowId);
 
     // raise_dispute has NO args, just disc
@@ -573,16 +577,18 @@ const App = (() => {
       data: data,
     });
 
+    toast('Filing dispute & starting AI arbitration...', 'info');
     const sig = await sendTx(ix);
     if (sig) {
-      toast('Dispute filed! AI arbitration will evaluate.', 'success');
-      // Trigger backend arbitration
+      toast('Dispute filed on-chain! Grok 4.1 is evaluating...', 'info');
+      // Trigger backend arbitration with reason
       fetch(`${CONFIG.API_URL}/api/jobs/${escrowId}/dispute`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Dispute raised via Phantom wallet' }),
+        body: JSON.stringify({ reason: reason.trim() }),
       }).then(r => r.json()).then(data => {
         if (data.arbitration) {
-          toast(`Ruling: ${data.arbitration.finalRuling} (confidence: ${data.arbitration.confidence || 'N/A'})`, 'info');
+          toast(`Ruling: ${data.arbitration.finalRuling} (confidence: ${data.arbitration.confidence || 'N/A'})`, 'success');
+          loadEscrows(); loadDecisions();
         }
       }).catch(() => {});
       closeModal();
