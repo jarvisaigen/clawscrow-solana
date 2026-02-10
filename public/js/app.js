@@ -107,11 +107,26 @@ const App = (() => {
   // ─── Load Data ───
   async function loadEscrows() {
     try {
-      const accounts = await connection.getProgramAccounts(CONFIG.PROGRAM_ID, { commitment: 'confirmed' });
-      escrows = accounts.filter(a => a.account.data.length >= 243).map(a => {
-        try { return deserializeEscrow(a.account.data, a.pubkey.toBase58()); } catch { return null; }
-      }).filter(Boolean);
-      escrows.sort((a, b) => b.createdAt - a.createdAt);
+      // Fetch from backend API (handles on-chain parsing server-side)
+      const res = await fetch(`${CONFIG.API_URL}/api/jobs`);
+      if (res.ok) {
+        const data = await res.json();
+        escrows = (data.jobs || []).map(j => ({
+          pubkey: j.escrowPda || '',
+          escrowId: j.escrowId,
+          buyer: j.buyer || '',
+          seller: j.seller || '',
+          description: j.description || '',
+          paymentAmount: j.paymentAmount || 0,
+          buyerCollateral: j.buyerCollateral || 0,
+          sellerCollateral: j.sellerCollateral || 0,
+          state: j.state || 'unknown',
+          stateIndex: 0,
+          createdAt: j.createdAt || 0,
+          deliveredAt: 0,
+        }));
+        escrows.sort((a, b) => b.escrowId - a.escrowId);
+      }
     } catch (err) {
       console.error('Load escrows failed:', err);
       escrows = [];
