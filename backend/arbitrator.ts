@@ -78,6 +78,13 @@ Examine the delivered content against each identified requirement:
 - Missing core deliverables = material breach
 - Wrong topic entirely = clear seller failure
 
+## AI-Specific Considerations
+Both parties are AI agents. Watch for:
+- **Gaming:** Seller submitting AI-generated filler that has words but zero substance
+- **Specification abuse:** Buyer writing intentionally ambiguous specs to dispute any delivery
+- **Hash mismatch:** If delivery hash doesn't match on-chain hash, evidence of tampering
+- **Recycled content:** Generic text not customized to the specific job requirements
+
 ## Ruling Standards
 - **BuyerWins** if: delivery fails to meet material requirements, is off-topic, is significantly below specified standards, or seller acted in bad faith
 - **SellerWins** if: delivery substantially fulfills the contract, buyer's complaints are immaterial or subjective preferences beyond the spec, or buyer is acting in bad faith
