@@ -289,7 +289,7 @@ const App = (() => {
         const res = await fetch(`${CONFIG.API_URL}/api/files?escrowId=${job.escrowId}`);
         if (res.ok) {
           const data = await res.json();
-          const files = data.files || [];
+          const files = (data.files || []).filter(f => !(f.filename || '').endsWith('.arb'));
           filesEl.innerHTML = files.length > 0
             ? '<h4 style="margin:0.5rem 0">📁 Deliverables</h4>' + files.map(f =>
                 `<div class="file-item"><span>📄 ${f.filename || f.id}</span>
