@@ -7,6 +7,18 @@
 const App = (() => {
   const { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram, SYSVAR_RENT_PUBKEY } = solanaWeb3;
 
+  const STATE_LABELS = {
+    created: 'Open',
+    accepted: 'Accepted',
+    delivered: 'Delivered',
+    approved: '✅ Approved',
+    disputed: '⚖️ Disputed',
+    resolved_buyer: '✅ Resolved — Buyer Wins',
+    resolved_seller: '✅ Resolved — Seller Wins',
+    cancelled: 'Cancelled',
+  };
+  function stateLabel(s) { return STATE_LABELS[s] || s; }
+
   const CONFIG = {
     PROGRAM_ID: new PublicKey('7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7'),
     USDC_MINT: new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'),
@@ -242,7 +254,7 @@ const App = (() => {
       const noSeller = !e.seller || e.seller === '11111111111111111111111111111111';
       return `
       <div class="escrow-card" onclick="App.openJob(${e.escrowId})">
-        <h4>Escrow #${e.escrowId} <span class="escrow-status status-${e.state}">${e.state}</span></h4>
+        <h4>Escrow #${e.escrowId} <span class="escrow-status status-${e.state}">${stateLabel(e.state)}</span></h4>
         ${e.description ? `<p class="escrow-desc">${e.description.length > 120 ? e.description.slice(0, 120) + '…' : e.description}</p>` : ''}
         <div class="escrow-meta">👤 <a href="https://solscan.io/account/${e.buyer}?cluster=devnet" target="_blank" onclick="event.stopPropagation()">${trunc(e.buyer)}</a> → ${noSeller ? '<em>open</em>' : `<a href="https://solscan.io/account/${e.seller}?cluster=devnet" target="_blank" onclick="event.stopPropagation()">${trunc(e.seller)}</a>`}</div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
@@ -294,7 +306,7 @@ const App = (() => {
     if (!modal) return;
 
     document.getElementById('modalTitle').textContent = `Escrow #${job.escrowId}`;
-    document.getElementById('modalStatus').textContent = job.state.toUpperCase();
+    document.getElementById('modalStatus').textContent = stateLabel(job.state);
     document.getElementById('modalStatus').className = `escrow-status status-${job.state}`;
     document.getElementById('modalReward').textContent = `$${(job.paymentAmount / 1e6).toFixed(2)} USDC`;
     document.getElementById('modalDeadline').textContent = `Buyer: $${(job.buyerCollateral / 1e6).toFixed(2)} / Seller: $${(job.sellerCollateral / 1e6).toFixed(2)}`;
