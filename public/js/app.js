@@ -201,7 +201,7 @@ const App = (() => {
             const ruling = r.ruling || {};
             return {
               escrowId: r.escrowId,
-              date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '',
+              date: r.timestamp ? new Date(r.timestamp).toLocaleString() : '',
               verdict: (ruling.finalRuling || r.finalRuling || '').toLowerCase().includes('buyer') ? 'buyer' : 'seller',
               amount: (ruling.paymentAmount || r.paymentAmount || 0) / 1e6,
               reasoning: ruling.reasoning || ruling.analysis || r.reasoning || r.analysis || '',
@@ -222,7 +222,7 @@ const App = (() => {
             j.state === 'disputed' || j.state === 'resolved_buyer' || j.state === 'resolved_seller'
           ).map(j => ({
             escrowId: j.escrowId,
-            date: j.createdAt ? new Date(j.createdAt).toLocaleDateString() : '',
+            date: j.createdAt ? new Date(j.createdAt).toLocaleString() : '',
             verdict: j.state?.includes('buyer') ? 'buyer' : j.state?.includes('seller') ? 'seller' : 'pending',
             amount: (j.paymentAmount || 0) / 1e6,
             reasoning: j.ruling?.reasoning || '',
