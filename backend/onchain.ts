@@ -313,20 +313,23 @@ export async function resolveDispute(escrowId: string, ruling: "BuyerWins" | "Se
   const eid = new anchor.BN(escrowId);
   const [escrowPda, vaultPda] = deriveEscrowPDA(eid);
 
-  // Get escrow data for buyer/seller tokens
+  // Get escrow data for buyer/seller pubkeys
   const escrowData = await program.account.escrow.fetch(escrowPda);
   const buyerPubkey = (escrowData as any).buyer as PublicKey;
   const sellerPubkey = (escrowData as any).seller as PublicKey;
 
-  // Find buyer and seller token accounts
-  let buyerToken: PublicKey | undefined;
-  let sellerToken: PublicKey | undefined;
-  for (const [, w] of agentWallets) {
-    if (w.keypair.publicKey.equals(buyerPubkey)) buyerToken = w.tokenAccount;
-    if (w.keypair.publicKey.equals(sellerPubkey)) sellerToken = w.tokenAccount;
-  }
-  if (!buyerToken) throw new Error("Buyer token account not found");
-  if (!sellerToken) throw new Error("Seller token account not found");
+  // Derive Associated Token Accounts from chain (not in-memory)
+  const { getOrCreateAssociatedTokenAccount } = await import("@solana/spl-token");
+  
+  const buyerAta = await getOrCreateAssociatedTokenAccount(
+    connection, arbitratorKeypair, usdcMint, buyerPubkey
+  );
+  const sellerAta = await getOrCreateAssociatedTokenAccount(
+    connection, arbitratorKeypair, usdcMint, sellerPubkey
+  );
+  const arbitratorAta = await getOrCreateAssociatedTokenAccount(
+    connection, arbitratorKeypair, usdcMint, arbitratorKeypair.publicKey
+  );
 
   const rulingArg = ruling === "BuyerWins" ? { buyerWins: {} } : { sellerWins: {} };
 
@@ -336,9 +339,9 @@ export async function resolveDispute(escrowId: string, ruling: "BuyerWins" | "Se
       arbitrator: arbitratorKeypair.publicKey,
       escrow: escrowPda,
       vault: vaultPda,
-      buyerToken,
-      sellerToken,
-      arbitratorToken: arbitratorKeypair.publicKey, // arbitrator fee goes here
+      buyerToken: buyerAta.address,
+      sellerToken: sellerAta.address,
+      arbitratorToken: arbitratorAta.address,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .signers([arbitratorKeypair])
