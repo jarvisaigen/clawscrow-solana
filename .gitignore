@@ -12,3 +12,4 @@ target/deploy/clawscrow-keypair.json
 .DS_Store
 Cargo.lock
 data/
+jarvis-test-keypair.json
