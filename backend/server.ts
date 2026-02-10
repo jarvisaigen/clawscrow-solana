@@ -428,13 +428,17 @@ const server = createServer(async (req, res) => {
           console.error(`[Arbitration] On-chain ruling failed: ${e.message}`);
         }
 
-        // Privacy cleanup: delete delivery files after resolution
-        try {
-          const { deleteFilesForEscrow } = await import("./files");
-          deleteFilesForEscrow(id);
-        } catch (e: any) {
-          console.error(`[Cleanup] Failed: ${e.message}`);
-        }
+        // Schedule file cleanup after 7 days (gives buyer time to download)
+        const CLEANUP_DELAY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+        setTimeout(async () => {
+          try {
+            const { deleteFilesForEscrow } = await import("./files");
+            deleteFilesForEscrow(id);
+          } catch (e: any) {
+            console.error(`[Cleanup] Failed: ${e.message}`);
+          }
+        }, CLEANUP_DELAY_MS);
+        console.log(`[Cleanup] Files for escrow #${id} scheduled for deletion in 7 days`);
 
         saveJobs(jobs);
         return json(res, { ok: true, job, arbitration: result, onChainTx });
