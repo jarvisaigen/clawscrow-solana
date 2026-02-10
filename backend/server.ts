@@ -336,41 +336,12 @@ const server = createServer(async (req, res) => {
 
     const acceptMatch = pathname.match(/^\/api\/jobs\/(\d+)\/accept$/);
     if (acceptMatch && req.method === "PUT") {
-      const id = parseInt(acceptMatch[1]);
-      const body = await parseBody(req);
-      
-      // Try reading current state from chain
-      let job: Job | null = null;
-      try { job = await fetchEscrowById(id); } catch {}
-      if (!job) job = jobs.get(id) || null;
-      if (!job) return json(res, { error: "Job not found" }, 404);
-      
-      // Update in-memory (chain state is authoritative on next GET)
-      job.seller = body.worker || body.seller || job.seller;
-      job.state = "accepted";
-      jobs.set(id, job); saveJobs(jobs);
-      return json(res, { ok: true, job });
+      return json(res, { error: "Deprecated — use POST /api/escrows/accept with {sellerAgentId, escrowId} for on-chain accept" }, 410);
     }
 
     const deliverMatch = pathname.match(/^\/api\/jobs\/(\d+)\/deliver$/);
     if (deliverMatch && req.method === "PUT") {
-      const id = parseInt(deliverMatch[1]);
-      
-      let job: Job | null = null;
-      try { job = await fetchEscrowById(id); } catch {}
-      if (!job) job = jobs.get(id) || null;
-      if (!job) return json(res, { error: "Job not found" }, 404);
-      
-      const body = await parseBody(req);
-      job.deliveryHash = body.hash;
-      job.fileId = body.fileId;
-      if (body.fileId) {
-        const meta = jobMeta.get(id);
-        if (meta) meta.fileId = body.fileId;
-      }
-      job.state = "delivered";
-      jobs.set(id, job); saveJobs(jobs);
-      return json(res, { ok: true, job });
+      return json(res, { error: "Deprecated — use POST /api/escrows/deliver with {sellerAgentId, escrowId, contentHash} for on-chain deliver" }, 410);
     }
 
     const disputeMatch = pathname.match(/^\/api\/jobs\/(\d+)\/dispute$/);
