@@ -194,9 +194,9 @@
         <h2 class="section-title">My Escrows</h2>
         <p class="section-desc">Your escrows as buyer or seller.</p>
         <div id="myEscrowFilters" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
-          <button class="btn btn-sm btn-primary" onclick="App.filterMyEscrows('all')">All</button>
-          <button class="btn btn-sm btn-outline" onclick="App.filterMyEscrows('buyer')">As Buyer</button>
-          <button class="btn btn-sm btn-outline" onclick="App.filterMyEscrows('seller')">As Seller</button>
+          <button class="btn btn-sm btn-primary" onclick="App.filterMyEscrows('all', this)">All</button>
+          <button class="btn btn-sm btn-outline" onclick="App.filterMyEscrows('buyer', this)">As Buyer</button>
+          <button class="btn btn-sm btn-outline" onclick="App.filterMyEscrows('seller', this)">As Seller</button>
         </div>
         <div id="myEscrowList"></div>
       </div>
