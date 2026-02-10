@@ -74,23 +74,27 @@ const jobMeta: Map<number, JobMeta> = new Map();
 
 // Parse on-chain escrow account data (699 bytes) into a Job
 function parseEscrowAccount(data: Buffer, meta?: JobMeta): Job {
+  // Layout: 8 disc + 8 id(@8) + 32 buyer(@16) + 32 seller(@48) + 32 arb(@80)
+  // + 8 pay(@112) + 8 buyCol(@120) + 8 selCol(@128) + 8 deadline(@136)
+  // + 4+500 desc(@144) + 1 state(@648) + 32 hash(@649)
+  // + 8 created(@681) + 8 delivered(@689) + 1 bump(@697) + 1 vaultBump(@698)
   const escrowId = Number(data.readBigUInt64LE(8));
   const buyer = new PublicKey(data.subarray(16, 48)).toBase58();
   const seller = new PublicKey(data.subarray(48, 80)).toBase58();
   const arbitrator = new PublicKey(data.subarray(80, 112)).toBase58();
-  const mint = new PublicKey(data.subarray(112, 144)).toBase58();
-  const paymentAmount = Number(data.readBigUInt64LE(144));
-  const buyerCollateral = Number(data.readBigUInt64LE(152));
-  const sellerCollateral = Number(data.readBigUInt64LE(160));
-  const stateVal = data[168];
+  const paymentAmount = Number(data.readBigUInt64LE(112));
+  const buyerCollateral = Number(data.readBigUInt64LE(120));
+  const sellerCollateral = Number(data.readBigUInt64LE(128));
+  const descLen = Math.min(data.readUInt32LE(144), 500);
+  const description = data.subarray(148, 148 + descLen).toString("utf-8");
+  const stateVal = data[648];
   const state = STATE_MAP[stateVal] || `unknown(${stateVal})`;
   
-  // Check if seller is all zeros (no seller yet)
   const sellerStr = seller === "11111111111111111111111111111111" ? undefined : seller;
 
   return {
     escrowId,
-    description: meta?.description || `Escrow #${escrowId}`,
+    description: description || meta?.description || `Escrow #${escrowId}`,
     buyer,
     seller: sellerStr,
     paymentAmount,
