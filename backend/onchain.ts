@@ -34,15 +34,31 @@ export async function initOnChain(): Promise<void> {
   connection = new Connection(DEVNET_URL, "confirmed");
   
   // Treasury keypair (deployer) — funds new agent wallets
-  const treasuryPath = process.env.TREASURY_KEYPAIR || path.join(process.env.HOME || "", ".config/solana/id.json");
-  if (fs.existsSync(treasuryPath)) {
-    treasuryKeypair = Keypair.fromSecretKey(
-      Uint8Array.from(JSON.parse(fs.readFileSync(treasuryPath, "utf-8")))
-    );
-    console.log("  Treasury:", treasuryKeypair.publicKey.toBase58());
+  const envKey = process.env.TREASURY_KEYPAIR;
+  if (envKey) {
+    try {
+      if (envKey.startsWith("[")) {
+        // JSON array in env var
+        treasuryKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(envKey)));
+      } else if (fs.existsSync(envKey)) {
+        // File path
+        treasuryKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(envKey, "utf-8"))));
+      } else {
+        treasuryKeypair = Keypair.generate();
+        console.log("  ⚠️ TREASURY_KEYPAIR invalid, generated ephemeral");
+      }
+    } catch {
+      treasuryKeypair = Keypair.generate();
+      console.log("  ⚠️ TREASURY_KEYPAIR parse error, generated ephemeral");
+    }
   } else {
-    treasuryKeypair = Keypair.generate();
-    console.log("  ⚠️ No treasury keypair found, generated ephemeral:", treasuryKeypair.publicKey.toBase58());
+    const defaultPath = path.join(process.env.HOME || "", ".config/solana/id.json");
+    if (fs.existsSync(defaultPath)) {
+      treasuryKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(defaultPath, "utf-8"))));
+    } else {
+      treasuryKeypair = Keypair.generate();
+      console.log("  ⚠️ No treasury keypair found, generated ephemeral");
+    }
   }
 
   // Setup Anchor provider
