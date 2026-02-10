@@ -419,24 +419,51 @@ const server = createServer(async (req, res) => {
     // === FILES (ECIES-enabled) ===
     
     // Upload file with optional ECIES encryption
+    // Modes:
+    //   1. No encryption: omit encryptForPubKey
+    //   2. Client-side encryption: pass encryptForPubKey (single recipient)
+    //   3. Server-side dual encryption: pass serverEncrypt=true + buyerPubKey + arbitratorPubKey
+    //      Server encrypts for both buyer and arbitrator. Two ciphertexts stored.
     if (pathname === "/api/files" && req.method === "POST") {
       const body = await parseBody(req);
-      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey } = body;
+      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey, serverEncrypt, buyerPubKey, arbitratorPubKey } = body;
 
       if (!content) {
         return json(res, { error: "Missing required field: content (base64)" }, 400);
       }
 
       try {
-        const result = uploadFile({
-          content,
-          filename,
-          contentType,
-          escrowId,
-          uploadedBy,
-          encryptForPubKey,
-        });
-        return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta }, 201);
+        if (serverEncrypt && buyerPubKey) {
+          // Server-side dual encryption: encrypt for buyer + optionally arbitrator
+          const buyerResult = uploadFile({
+            content, filename, contentType, escrowId, uploadedBy,
+            encryptForPubKey: buyerPubKey,
+          });
+          let arbitratorFileId: string | undefined;
+          if (arbitratorPubKey) {
+            const arbResult = uploadFile({
+              content,
+              filename: `${filename || "delivery"}.arb`,
+              contentType, escrowId, uploadedBy,
+              encryptForPubKey: arbitratorPubKey,
+            });
+            arbitratorFileId = arbResult.fileId;
+          }
+          return json(res, {
+            ok: true,
+            fileId: buyerResult.fileId,
+            arbitratorFileId,
+            contentHash: buyerResult.contentHash,
+            meta: buyerResult.meta,
+            encryption: "server-dual",
+          }, 201);
+        } else {
+          // Original: no encryption or client-side single encryption
+          const result = uploadFile({
+            content, filename, contentType, escrowId, uploadedBy, encryptForPubKey,
+          });
+          return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta }, 201);
+        }
       } catch (err: any) {
         return json(res, { error: `Upload failed: ${err.message}` }, 500);
       }
