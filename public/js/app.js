@@ -358,7 +358,9 @@ const App = (() => {
 
   async function requestFaucet() {
     if (!publicKey) { toast('Connect wallet first', 'error'); return; }
-    toast('Minting 100 test USDC...', 'info');
+    const btn = document.getElementById('faucetBtn');
+    btn.disabled = true; btn.innerHTML = '⏳ Minting...';
+    toast('Minting 100 test USDC — this may take up to 30s...', 'info');
     try {
       const res = await fetch(`${CONFIG.API_URL}/api/faucet`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -371,6 +373,7 @@ const App = (() => {
         toast(`Faucet error: ${data.error || 'unknown'}`, 'error');
       }
     } catch (e) { toast(`Faucet failed: ${e.message}`, 'error'); }
+    btn.disabled = false; btn.innerHTML = '💰 Get Test USDC';
   }
 
   function filterDecisions() {
