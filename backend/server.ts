@@ -398,7 +398,7 @@ const server = createServer(async (req, res) => {
               let content: Buffer = fileData.data;
               if (targetFile.encrypted) {
                 try {
-                  const { decryptForArbitrator } = await import("./encryption");
+                  const { decryptForArbitrator } = require("./encryption");
                   content = decryptForArbitrator(String(id), fileData.data);
                 } catch (e: any) {
                   console.error(`[Arbitration] Decrypt failed: ${e.message}`);
