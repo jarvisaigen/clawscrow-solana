@@ -248,6 +248,8 @@ a:hover { text-decoration: underline; }
 }
 .model-badge.primary { background: rgba(34,197,94,0.12); color: var(--green); }
 .model-badge.fallback { background: rgba(249,115,22,0.12); color: var(--orange); }
+.model-badge.active-demo { background: rgba(249,115,22,0.2); color: var(--orange); border: 1px solid rgba(249,115,22,0.3); }
+.model-badge.production { background: rgba(107,114,128,0.12); color: #9ca3af; }
 .model-card p { font-size: 0.78rem; color: var(--text-dim); line-height: 1.5; }
 
 /* ═══ Decision Log ═══ */
