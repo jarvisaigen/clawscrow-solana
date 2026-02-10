@@ -1,121 +1,153 @@
-# Demo Video Script — Clawscrow
+# 🎬 Clawscrow Demo Video Script
 
-**Duration:** ~2.5 min
+**Duration:** ~3 minutes
 **Language:** English
 **Format:** Screen recording (terminal + browser) + ElevenLabs voiceover
+**Resolution:** 1920x1080
 
-## OPSEC Checklist
-- ❌ No API keys visible
-- ❌ No wallet private keys
-- ❌ No phone numbers
-- ❌ No Railway dashboard / env vars
-- ❌ No internal chat messages
-- ✅ Only: public URLs, program ID, wallet public addresses, terminal output
+---
+
+## OPSEC CHECKLIST (verify before recording!)
+- [ ] No API keys visible (env vars, .env files)
+- [ ] No private keys or wallet seeds
+- [ ] No GitHub tokens
+- [ ] No phone numbers or personal messages
+- [ ] No Railway dashboard / env vars
+- [ ] Terminal history cleared (`history -c && clear`)
+- [ ] Browser: only Clawscrow tab open, no bookmarks bar
+- [ ] No other apps visible in dock/taskbar
+- [ ] Notifications disabled
 
 ---
 
 ## Part 1: Intro (15s)
 
-**Screen:** Landing page hero section
-**Voice:** "Clawscrow — trustless escrow for AI agent commerce on Solana. Two AI agents can trade services without trusting each other. Payment locked on-chain. Disputes resolved by AI."
+**Screen:** Clawscrow landing page
+
+**Voiceover:**
+> "Clawscrow — trustless USDC escrow with AI arbitration on Solana. Two AI agents can trade services without trusting each other. Payment is locked on-chain. Disputes are resolved by an AI judge. Built entirely by AI agents."
 
 ---
 
 ## Part 2: Terminal — Agent-to-Agent Flow (60s)
 
-**Screen:** Clean terminal (black bg, large font)
+**Screen:** Clean terminal, dark theme, large font
 
-**Voice:** "Let's see how AI agents use Clawscrow via API."
-
-### 2a. Register agents (10s)
+**Setup before recording:**
 ```bash
-# Agent 1: Buyer
-curl -s -X POST $API/api/agents/register \
-  -H "Content-Type: application/json" \
-  -d '{"agentId":"buyer-agent","solanaAddress":"<pubkey>"}' | jq
-
-# Agent 2: Seller  
-curl -s -X POST $API/api/agents/register \
-  -H "Content-Type: application/json" \
-  -d '{"agentId":"seller-agent","solanaAddress":"<pubkey>"}' | jq
+history -c && clear
+export PS1="$ "
+export BASE="https://clawscrow-solana-production.up.railway.app"
 ```
-**Voice:** "Two agents register with their Solana wallets."
 
-### 2b. Create escrow (10s)
+### 2a. Health check (5s)
 ```bash
-curl -s -X POST $API/api/escrows/create \
-  -H "Content-Type: application/json" \
-  -d '{"buyerAgentId":"buyer-agent","description":"Write a market analysis report","paymentAmount":5}' | jq
+curl -s $BASE/health | jq .
 ```
-**Voice:** "The buyer creates an escrow — 5 USDC locked on-chain with collateral from both sides."
+> "The backend runs on Railway with S3-persistent storage on Solana devnet."
+
+### 2b. Create escrow (15s)
+```bash
+curl -s -X POST $BASE/api/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Write a haiku about Solana blockchain",
+    "amount": 5,
+    "collateral": 0.5,
+    "deadline": "2026-02-15",
+    "buyer": "BUYER_WALLET_ADDRESS"
+  }' | jq .
+```
+> "Agent A creates an escrow — 5 USDC locked on-chain with collateral from both parties."
 
 ### 2c. Accept + Deliver (15s)
 ```bash
-# Seller accepts
-curl -s -X POST $API/api/escrows/accept \
+curl -s -X PUT $BASE/api/jobs/ESCROW_ID/accept \
   -H "Content-Type: application/json" \
-  -d '{"escrowId":"<id>","sellerAgentId":"seller-agent"}' | jq
-
-# Seller uploads encrypted file + delivers
-curl -s -X POST $API/api/files \
-  -H "Content-Type: application/json" \
-  -d '{"filename":"report.pdf","content":"<base64>","escrowId":"<id>"}' | jq
-
-curl -s -X POST $API/api/escrows/deliver \
-  -H "Content-Type: application/json" \
-  -d '{"escrowId":"<id>","sellerAgentId":"seller-agent","deliveryHash":"<hash>"}' | jq
+  -d '{"seller": "SELLER_WALLET_ADDRESS"}' | jq .
 ```
-**Voice:** "The seller accepts, uploads an encrypted file, and delivers on-chain. The content hash is stored permanently."
+```bash
+curl -s -X POST $BASE/api/files/upload \
+  -H "Content-Type: application/json" \
+  -d '{"content": "BASE64_CONTENT", "filename": "haiku.txt", "escrowId": "ESCROW_ID"}' | jq .
+```
+> "Agent B accepts and delivers. The file is automatically encrypted with per-escrow ECIES keys — the server cannot read the content."
 
 ### 2d. Dispute + AI Ruling (25s)
 ```bash
-curl -s -X PUT $API/api/jobs/<id>/dispute \
+curl -s -X PUT $BASE/api/jobs/ESCROW_ID/dispute \
   -H "Content-Type: application/json" \
-  -d '{"reason":"Report lacks depth and misses key metrics"}' | jq
+  -d '{"reason": "Not a proper haiku - wrong syllable count"}' | jq .
 ```
-**Voice:** "The buyer isn't satisfied and raises a dispute. Grok 4.1 evaluates the evidence — the job description, the delivery content, and the buyer's complaint. Within seconds, it delivers a reasoned ruling and settles funds on-chain. No human intervention needed."
+> "Agent A disputes. Grok 4.1 decrypts the delivery, analyzes it against the job description, and determines a winner with a confidence score. The ruling is executed on-chain automatically — funds transfer to the winner."
 
-**Show:** JSON response with `finalRuling`, `confidence`, `reasoning`
-
----
-
-## Part 3: Browser — Human Wallet Flow (50s)
-
-**Screen:** Clawscrow dashboard in browser
-
-### 3a. Connect + Fund (15s)
-**Voice:** "Humans can also use Clawscrow through the web dashboard."
-- Click "Connect Wallet" → Phantom popup → Connected
-- Click "💰 Get Test USDC" → Loading → "100 USDC minted!"
-
-### 3b. Browse + Create Escrow (10s)
-**Voice:** "Browse open jobs on the marketplace, or create your own."
-- Show escrow cards on Dashboard
-- Click "Create Escrow" → Fill form → Sign in Phantom
-
-### 3c. View Delivery + Dispute (15s)
-**Voice:** "When work is delivered, the buyer can decrypt the file, approve, or dispute."
-- Click on a delivered escrow → Modal opens
-- Show encrypted file → Click "Decrypt" → File downloads
-- Click "Dispute" → Modal with reason textarea → Submit → Phantom signs
-
-### 3d. Decisions Page (10s)
-**Voice:** "All rulings are public — like court decisions. The AI's reasoning, confidence score, and final verdict are transparent."
-- Switch to Decisions tab → Show expanded ruling with Grok analysis
+**Show:** Grok's reasoning in the JSON response — pause so viewers can read.
 
 ---
 
-## Part 4: Outro (15s)
+## Part 3: Web UI — Phantom Wallet Flow (60s)
 
-**Screen:** Architecture tab or landing hero
-**Voice:** "Clawscrow — built by two AI agents, Ash and Jarvis, running on OpenClaw. Trustless commerce for the agent economy. Try it live at clawscrow-solana-production.up.railway.app."
+**Screen:** Browser at clawscrow-solana-production.up.railway.app
+
+> "Clawscrow also has a web dashboard for human users with Phantom wallet integration."
+
+### 3a. Connect Phantom (10s)
+- Click "Connect Wallet" → Phantom popup → approve
+> "Connect your Phantom wallet. All transactions are signed by you — fully trustless, no custody."
+
+### 3b. Get Test USDC (10s)
+- Click "Get Test USDC" → loading spinner → success toast
+> "New users can mint devnet USDC with one click to start testing."
+
+### 3c. Browse Escrows (10s)
+- Show Escrows tab with list of jobs
+- Click on an escrow to see details
+> "Browse all escrows on the marketplace. Filter by wallet, paginate through results."
+
+### 3d. My Escrows (10s)
+- Switch to "My Escrows" tab
+- Show personal view
+> "Your personal dashboard shows escrows you've created or accepted."
+
+### 3e. Decisions Page (15s)
+- Switch to "Decisions" tab
+- Click on a ruling to expand full analysis
+> "Every dispute ruling is public — like court proceedings. Click to see the AI judge's full analysis, evidence review, and confidence score. The on-chain transaction is linked."
+
+### 3f. Create New Escrow (5s)
+- Click "Create Escrow" → show modal
+> "Creating a new escrow takes seconds."
 
 ---
 
-## Recording Notes
-- Terminal: use `export API=https://clawscrow-solana-production.up.railway.app` (no secrets)
-- Browser: make sure no bookmarks bar / personal tabs visible
-- Font size: large (terminal 16pt+, browser 125% zoom)
-- Pre-create test wallets so flow is smooth
-- Have escrows in different states ready to show
-- Use `| jq` for pretty JSON output in terminal
+## Part 4: Architecture + Closing (30s)
+
+**Screen:** Architecture diagram or README
+
+> "Under the hood: an Anchor smart contract locks USDC in PDA vaults on Solana. ECIES encryption protects all deliveries end-to-end. Grok 4.1 provides AI arbitration with structured four-step reasoning. All state persists in S3 storage."
+
+> "Clawscrow was built entirely by two AI agents — Ash and Jarvis — running on OpenClaw, supervised by their human team. Every line of code, every commit, every design decision — made by AI agents collaborating in real-time. This is agent commerce, built by agents, for agents."
+
+**End card:** GitHub URL + "Colosseum Agent Hackathon 2026"
+
+---
+
+## Recording Checklist
+
+### Terminal
+- Black background, large monospace font (16pt+)
+- Simple prompt: `$ `
+- Pre-test all commands work before recording
+- Use fresh escrow created live during recording
+
+### Browser
+- Clean profile or incognito
+- Only Clawscrow tab, no bookmarks bar
+- Phantom on devnet, pre-funded with test USDC
+- Disable all notifications
+
+### Post-Production
+- Title cards between Part 2 and Part 3
+- Subtle background music (royalty-free)
+- ElevenLabs voiceover synced to actions
+- Combine with ffmpeg
