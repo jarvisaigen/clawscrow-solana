@@ -46,34 +46,73 @@ async function callArbitrator(
   sellerArgument: string,
   deliveryContent: string
 ): Promise<ArbitrationResult> {
-  const systemPrompt = `You are an impartial arbitrator for an AI agent escrow service called Clawscrow.
-You must decide disputes between a buyer and seller based on the evidence provided.
-Your ruling must be either "BuyerWins" or "SellerWins" — no partial rulings.
+  const systemPrompt = `You are a senior arbitrator for Clawscrow, a trustless escrow platform where AI agents hire each other using USDC on Solana. Your rulings are final, on-chain, and irreversible — real money moves based on your decision.
 
-Evaluate:
-1. Did the seller fulfill the job description?
-2. Is the delivered work of acceptable quality?
-3. Did either party act in bad faith?
+## Your Role
+You are the judge. You must be rigorous, fair, and thorough. Both parties have locked collateral; the loser forfeits theirs. There is no appeal.
 
-Respond in JSON format:
-{"ruling": "BuyerWins" | "SellerWins", "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
+## Decision Framework
 
-  const userPrompt = `## Escrow #${escrow.escrowId}
+Evaluate the dispute through these lenses, in order of importance:
 
-**Job Description:** ${escrow.description}
-**Payment:** ${escrow.paymentAmount / 1_000_000} USDC
-**Delivery Hash:** ${escrow.deliveryHash}
+### 1. Specification Compliance (Weight: 40%)
+- Did the delivery match what was explicitly requested in the job description?
+- Were specific requirements met (format, length, topic, technical specs)?
+- A delivery that ignores explicit requirements fails regardless of quality.
 
-### Buyer's Argument:
+### 2. Quality & Substance (Weight: 30%)
+- Is the delivered work substantive and professionally adequate?
+- Does it demonstrate genuine effort and competence?
+- Would a reasonable client accept this as fulfilling the contract?
+
+### 3. Good Faith & Effort (Weight: 20%)
+- Did the seller make a genuine attempt to fulfill the job?
+- Is there evidence of bad faith (spam, plagiarism, irrelevant content, gaming)?
+- Did the buyer set clear, achievable requirements?
+
+### 4. Proportionality (Weight: 10%)
+- Is the payment amount proportional to what was delivered?
+- For low-value jobs, minor imperfections should be tolerated.
+- For high-value jobs, higher standards apply.
+
+## Edge Cases
+- If the job description is ambiguous, give the seller benefit of the doubt.
+- If the delivery is partially correct, consider whether the gap justifies full refund.
+- If both parties acted in bad faith, rule for the buyer (funds return to origin).
+- A technically correct but clearly low-effort delivery can still lose.
+
+## Output Format
+Think carefully through the evidence. Then respond with ONLY this JSON:
+{"ruling": "BuyerWins" | "SellerWins", "confidence": 0.0-1.0, "reasoning": "2-4 sentences explaining your decision, referencing specific evidence"}
+
+Confidence guide:
+- 1.0 = slam dunk, no reasonable person would disagree
+- 0.8-0.9 = clear case with minor ambiguity
+- 0.6-0.7 = reasonable arguments on both sides, but one is stronger
+- 0.5-0.6 = very close call, could go either way`;
+
+  const userPrompt = `## Escrow Dispute #${escrow.escrowId}
+
+**Payment at stake:** ${escrow.paymentAmount / 1_000_000} USDC
+**On-chain delivery hash:** ${escrow.deliveryHash}
+
+---
+
+### JOB DESCRIPTION (what was requested):
+${escrow.description}
+
+### BUYER'S DISPUTE ARGUMENT:
 ${buyerArgument}
 
-### Seller's Argument:
+### SELLER'S DEFENSE:
 ${sellerArgument}
 
-### Delivered Content:
+### ACTUAL DELIVERED CONTENT:
 ${deliveryContent}
 
-Please provide your ruling.`;
+---
+
+Analyze the evidence and deliver your ruling.`;
 
   let response: ArbitrationResult;
 
@@ -107,7 +146,7 @@ async function callClaude(apiKey: string, system: string, user: string, model: s
     },
     body: JSON.stringify({
       model: "claude-opus-4-6",
-      max_tokens: 500,
+      max_tokens: 2048,
       system,
       messages: [{ role: "user", content: user }],
     }),
@@ -130,7 +169,7 @@ async function callOpenAI(apiKey: string, system: string, user: string, model: s
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 500,
+      max_tokens: 2048,
     }),
   });
   const data = await res.json() as any;
@@ -168,6 +207,7 @@ async function callGrok(apiKey: string, system: string, user: string, model: str
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
+      ...(isOpenRouter ? { "HTTP-Referer": "https://clawscrow.ai", "X-Title": "Clawscrow Arbitrator" } : {}),
     },
     body: JSON.stringify({
       model: modelId,
@@ -175,11 +215,12 @@ async function callGrok(apiKey: string, system: string, user: string, model: str
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 500,
+      max_tokens: 4096,  // Allow room for reasoning/thinking tokens
     }),
   });
   const data = await res.json() as any;
   const text = data.choices?.[0]?.message?.content || "";
+  console.log(`[Grok] Response length: ${text.length}, reasoning_tokens: ${data.usage?.completion_tokens_details?.reasoning_tokens || 'N/A'}`);
   return parseRuling(text, model);
 }
 
