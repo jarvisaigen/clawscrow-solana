@@ -23,7 +23,7 @@
         <a href="#" class="nav-tab" data-tab="decisions" onclick="switchTab('decisions');return false;">Decisions</a>
         <a href="#" class="nav-tab" data-tab="architecture" onclick="switchTab('architecture');return false;">Architecture</a>
       </div>
-      <button id="connectWallet" class="btn btn-primary btn-sm">
+      <button id="connectWallet" class="btn btn-primary btn-sm" style="cursor:pointer">
         <span id="walletText">Connect Wallet</span>
       </button>
     </div>
@@ -171,30 +171,10 @@
   <div class="tab-panel" id="tab-marketplace">
     <section id="marketplace" class="section">
       <div class="container">
-        <h2 class="section-title">Active Escrows</h2>
-        
-        <!-- Create Escrow Form (visible when wallet connected) -->
-        <div id="createEscrowForm" style="display:none;margin-bottom:2rem;padding:1.5rem;background:var(--card-bg);border:1px solid var(--border);border-radius:12px;">
-          <h3 style="margin:0 0 1rem 0;font-size:1.1rem">🦞 Create New Escrow</h3>
-          <form onsubmit="App.postJob(event)">
-            <div style="margin-bottom:0.75rem">
-              <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary)">Job Description</label>
-              <textarea id="jobDescription" rows="3" placeholder="Describe what you need done..." style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);resize:vertical;font-family:inherit" required></textarea>
-            </div>
-            <div style="display:flex;gap:1rem;margin-bottom:1rem">
-              <div style="flex:1">
-                <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary)">Payment (USDC)</label>
-                <input type="number" id="jobReward" step="0.001" min="0.001" placeholder="5.00" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary)" required>
-              </div>
-              <div style="flex:1">
-                <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary)">Collateral (USDC)</label>
-                <input type="number" id="jobCollateral" step="0.001" min="0" value="1" placeholder="1.00" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary)">
-              </div>
-            </div>
-            <button type="submit" class="btn btn-primary">🚀 Create Escrow</button>
-          </form>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
+          <h2 class="section-title" style="margin-bottom:0">Active Escrows</h2>
+          <button class="btn btn-primary" onclick="App.showCreateForm()">🦞 Create Escrow</button>
         </div>
-
         <div id="escrowList" class="escrow-grid">
           <p class="empty-state">No active escrows</p>
         </div>

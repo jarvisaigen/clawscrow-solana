@@ -1,124 +1,43 @@
-/* Clawscrow IDL — auto-generated from target/idl/clawscrow.json */
+/* Clawscrow IDL — matches deployed program 7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7 */
 const CLAWSCROW_IDL = {
-  "version": "0.1.0",
-  "name": "clawscrow",
-  "instructions": [
-    {
-      "name": "createEscrow",
-      "accounts": [
-        { "name": "buyer", "isMut": true, "isSigner": true },
-        { "name": "arbitrator", "isMut": false, "isSigner": false },
-        { "name": "mint", "isMut": false, "isSigner": false },
-        { "name": "escrow", "isMut": true, "isSigner": false },
-        { "name": "vault", "isMut": true, "isSigner": false },
-        { "name": "buyerTokenAccount", "isMut": true, "isSigner": false },
-        { "name": "tokenProgram", "isMut": false, "isSigner": false },
-        { "name": "systemProgram", "isMut": false, "isSigner": false },
-        { "name": "rent", "isMut": false, "isSigner": false }
-      ],
-      "args": [
-        { "name": "escrowId", "type": "u64" },
-        { "name": "paymentAmount", "type": "u64" },
-        { "name": "collateralAmount", "type": "u64" },
-        { "name": "descriptionHash", "type": { "array": ["u8", 32] } }
-      ]
+  address: "7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7",
+  instructions: {
+    create_escrow: {
+      discriminator: [253, 215, 165, 116, 36, 108, 68, 80],
+      accounts: ["buyer", "escrow", "vault", "buyer_token", "usdc_mint", "arbitrator", "token_program", "system_program", "rent"],
+      // args: escrow_id(u64), description(string), payment_amount(u64), buyer_collateral(u64), seller_collateral(u64), deadline_ts(i64)
     },
-    {
-      "name": "acceptEscrow",
-      "accounts": [
-        { "name": "seller", "isMut": true, "isSigner": true },
-        { "name": "escrow", "isMut": true, "isSigner": false },
-        { "name": "vault", "isMut": true, "isSigner": false },
-        { "name": "sellerTokenAccount", "isMut": true, "isSigner": false },
-        { "name": "tokenProgram", "isMut": false, "isSigner": false }
-      ],
-      "args": []
+    accept_escrow: {
+      discriminator: [193, 2, 224, 245, 36, 116, 65, 154],
+      accounts: ["seller", "escrow", "vault", "seller_token", "token_program"],
+      // args: escrow_id(u64)
     },
-    {
-      "name": "deliver",
-      "accounts": [
-        { "name": "seller", "isMut": false, "isSigner": true },
-        { "name": "escrow", "isMut": true, "isSigner": false }
-      ],
-      "args": [
-        { "name": "deliveryHash", "type": { "array": ["u8", 32] } }
-      ]
+    deliver: {
+      discriminator: [250, 131, 222, 57, 211, 229, 209, 147],
+      accounts: ["seller", "escrow"],
+      // args: delivery_hash([u8;32])
     },
-    {
-      "name": "approve",
-      "accounts": [
-        { "name": "caller", "isMut": false, "isSigner": true },
-        { "name": "escrow", "isMut": true, "isSigner": false },
-        { "name": "vault", "isMut": true, "isSigner": false },
-        { "name": "sellerTokenAccount", "isMut": true, "isSigner": false },
-        { "name": "tokenProgram", "isMut": false, "isSigner": false }
-      ],
-      "args": []
+    approve: {
+      discriminator: [69, 74, 217, 36, 115, 117, 97, 76],
+      accounts: ["signer", "escrow", "vault", "buyer_token", "seller_token", "token_program"],
+      // args: escrow_id(u64)
     },
-    {
-      "name": "dispute",
-      "accounts": [
-        { "name": "buyer", "isMut": false, "isSigner": true },
-        { "name": "escrow", "isMut": true, "isSigner": false }
-      ],
-      "args": []
+    raise_dispute: {
+      discriminator: [41, 243, 1, 51, 150, 95, 246, 73],
+      accounts: ["buyer", "escrow"],
+      // args: none
     },
-    {
-      "name": "arbitrate",
-      "accounts": [
-        { "name": "arbitrator", "isMut": false, "isSigner": true },
-        { "name": "escrow", "isMut": true, "isSigner": false },
-        { "name": "vault", "isMut": true, "isSigner": false },
-        { "name": "winnerTokenAccount", "isMut": true, "isSigner": false },
-        { "name": "protocolFeeAccount", "isMut": true, "isSigner": false },
-        { "name": "tokenProgram", "isMut": false, "isSigner": false }
-      ],
-      "args": [
-        { "name": "winnerIsBuyer", "type": "bool" }
-      ]
-    }
-  ],
-  "accounts": [
-    {
-      "name": "Escrow",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          { "name": "escrowId", "type": "u64" },
-          { "name": "buyer", "type": "publicKey" },
-          { "name": "seller", "type": "publicKey" },
-          { "name": "arbitrator", "type": "publicKey" },
-          { "name": "mint", "type": "publicKey" },
-          { "name": "paymentAmount", "type": "u64" },
-          { "name": "collateralAmount", "type": "u64" },
-          { "name": "descriptionHash", "type": { "array": ["u8", 32] } },
-          { "name": "deliveryHash", "type": { "array": ["u8", 32] } },
-          { "name": "state", "type": { "defined": "EscrowState" } },
-          { "name": "createdAt", "type": "i64" },
-          { "name": "deliveredAt", "type": "i64" },
-          { "name": "bump", "type": "u8" },
-          { "name": "vaultBump", "type": "u8" }
-        ]
-      }
-    }
-  ],
-  "types": [
-    {
-      "name": "EscrowState",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          { "name": "Open" },
-          { "name": "Active" },
-          { "name": "Delivered" },
-          { "name": "Approved" },
-          { "name": "Disputed" },
-          { "name": "Resolved" }
-        ]
-      }
-    }
-  ],
-  "metadata": {
-    "address": "7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7"
-  }
+    arbitrate: {
+      discriminator: [105, 91, 110, 150, 216, 11, 142, 142],
+      accounts: ["arbitrator", "escrow", "vault", "buyer_token", "seller_token", "arbitrator_token", "token_program"],
+      // args: escrow_id(u64), ruling(enum: 0=BuyerWins, 1=SellerWins)
+    },
+    auto_approve: {
+      discriminator: [36, 58, 85, 199, 138, 197, 222, 178],
+      accounts: ["signer", "escrow", "vault", "buyer_token", "seller_token", "token_program"],
+      // args: escrow_id(u64)
+    },
+  },
+  escrowDiscriminator: [31, 213, 123, 187, 186, 22, 218, 155],
+  stateNames: ["created", "accepted", "delivered", "approved", "disputed", "resolved_buyer", "resolved_seller", "cancelled"],
 };
