@@ -555,12 +555,41 @@ const App = (() => {
     }
   }
 
+  function showDisputeModal(escrowId) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      overlay.innerHTML = `
+        <div style="background:var(--card-bg,#1a1a2e);border:1px solid var(--border,#2a2a4a);border-radius:16px;padding:2rem;max-width:500px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+          <h3 style="margin:0 0 0.5rem;color:var(--text,#fff);font-size:1.3rem">⚖️ File a Dispute</h3>
+          <p style="color:var(--text-muted,#888);margin:0 0 1.5rem;font-size:0.9rem">Escrow #${escrowId} — Grok 4.1 AI will evaluate your claim against the delivered work.</p>
+          <label style="display:block;color:var(--text,#fff);font-weight:600;margin-bottom:0.5rem;font-size:0.9rem">Why are you disputing?</label>
+          <textarea id="disputeReason" rows="4" placeholder="Describe the issue with the delivery..." style="width:100%;background:var(--input-bg,#0d0d1a);color:var(--text,#fff);border:1px solid var(--border,#2a2a4a);border-radius:8px;padding:0.75rem;font-family:inherit;font-size:0.95rem;resize:vertical;box-sizing:border-box"></textarea>
+          <div style="display:flex;gap:0.75rem;margin-top:1.5rem;justify-content:flex-end">
+            <button id="disputeCancel" class="btn btn-outline" style="padding:0.6rem 1.5rem">Cancel</button>
+            <button id="disputeSubmit" class="btn btn-primary" style="padding:0.6rem 1.5rem;background:#e74c3c">⚖️ Submit Dispute</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const textarea = overlay.querySelector('#disputeReason');
+      textarea.focus();
+      overlay.querySelector('#disputeCancel').onclick = () => { document.body.removeChild(overlay); resolve(null); };
+      overlay.querySelector('#disputeSubmit').onclick = () => {
+        const val = textarea.value.trim();
+        if (!val) { textarea.style.borderColor = '#e74c3c'; toast('Please describe the issue', 'error'); return; }
+        document.body.removeChild(overlay);
+        resolve(val);
+      };
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { document.body.removeChild(overlay); resolve(null); } });
+    });
+  }
+
   async function disputeJob(escrowId) {
     if (!publicKey) { toast('Connect wallet first', 'error'); return; }
 
-    // Show dispute reason dialog
-    const reason = prompt('Why are you disputing this delivery? Describe the issue:');
-    if (!reason || !reason.trim()) { toast('Dispute cancelled — reason required', 'error'); return; }
+    // Show dispute modal
+    const reason = await showDisputeModal(escrowId);
+    if (!reason) return;
 
     const [escrowPda] = findEscrowPDA(escrowId);
 
