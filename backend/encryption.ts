@@ -114,6 +114,55 @@ export function decryptDelivery(
   return { decrypted, hash, verified };
 }
 
+// === Per-Escrow Key Management ===
+// Auto-generates ECIES keypairs for buyer + arbitrator per escrow
+// Keys stored in data/keys/ directory
+
+import * as path from "path";
+import * as fs from "fs";
+
+const KEYS_DIR = path.join(__dirname, "../data/keys");
+if (!fs.existsSync(KEYS_DIR)) fs.mkdirSync(KEYS_DIR, { recursive: true });
+
+interface EscrowKeys {
+  buyerPubKey: string;
+  buyerPrivKey: string;
+  arbitratorPubKey: string;
+  arbitratorPrivKey: string;
+}
+
+export function getOrCreateEscrowKeys(escrowId: string): EscrowKeys {
+  const keyFile = path.join(KEYS_DIR, `${escrowId}.json`);
+  
+  if (fs.existsSync(keyFile)) {
+    return JSON.parse(fs.readFileSync(keyFile, "utf-8"));
+  }
+  
+  // Generate new keypairs
+  const buyerKey = ec.genKeyPair();
+  const arbKey = ec.genKeyPair();
+  
+  const keys: EscrowKeys = {
+    buyerPubKey: Buffer.from(buyerKey.getPublic().encode("array", false)).toString("hex"),
+    buyerPrivKey: Buffer.from(buyerKey.getPrivate().toArray("be", 32)).toString("hex"),
+    arbitratorPubKey: Buffer.from(arbKey.getPublic().encode("array", false)).toString("hex"),
+    arbitratorPrivKey: Buffer.from(arbKey.getPrivate().toArray("be", 32)).toString("hex"),
+  };
+  
+  fs.writeFileSync(keyFile, JSON.stringify(keys, null, 2), { mode: 0o600 });
+  return keys;
+}
+
+export function decryptForBuyer(escrowId: string, encryptedData: Buffer): Buffer {
+  const keys = getOrCreateEscrowKeys(escrowId);
+  return eciesDecrypt(encryptedData, keys.buyerPrivKey);
+}
+
+export function decryptForArbitrator(escrowId: string, encryptedData: Buffer): Buffer {
+  const keys = getOrCreateEscrowKeys(escrowId);
+  return eciesDecrypt(encryptedData, keys.arbitratorPrivKey);
+}
+
 // === Self-test ===
 if (require.main === module) {
   console.log("Running ECIES self-test...");

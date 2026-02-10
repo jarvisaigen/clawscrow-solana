@@ -410,53 +410,57 @@ const server = createServer(async (req, res) => {
       return json(res, { ok: true, job, arbitration: null, message: "API keys not configured — manual arbitration required" });
     }
 
-    // === FILES (ECIES-enabled) ===
+    // === FILES (ECIES-enabled, auto-encrypt by default) ===
     
-    // Upload file with optional ECIES encryption
-    // Modes:
-    //   1. No encryption: omit encryptForPubKey
-    //   2. Client-side encryption: pass encryptForPubKey (single recipient)
-    //   3. Server-side dual encryption: pass serverEncrypt=true + buyerPubKey + arbitratorPubKey
-    //      Server encrypts for both buyer and arbitrator. Two ciphertexts stored.
+    // Upload file — auto-encrypts when escrowId is provided
+    // Server generates ECIES keypairs per escrow for buyer + arbitrator
+    // Buyer decrypts via GET /api/files/:id/decrypt?escrowId=X
     if (pathname === "/api/files" && req.method === "POST") {
       const body = await parseBody(req);
-      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey, serverEncrypt, buyerPubKey, arbitratorPubKey } = body;
+      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey, noEncrypt } = body;
 
       if (!content) {
         return json(res, { error: "Missing required field: content (base64)" }, 400);
       }
 
       try {
-        if (serverEncrypt && buyerPubKey) {
-          // Server-side dual encryption: encrypt for buyer + optionally arbitrator
+        // Auto-encrypt when escrowId is provided (unless explicitly disabled)
+        if (escrowId && !noEncrypt && !encryptForPubKey) {
+          const { getOrCreateEscrowKeys } = await import("./encryption");
+          const keys = getOrCreateEscrowKeys(String(escrowId));
+          
+          // Encrypt for buyer
           const buyerResult = uploadFile({
             content, filename, contentType, escrowId, uploadedBy,
-            encryptForPubKey: buyerPubKey,
+            encryptForPubKey: keys.buyerPubKey,
           });
-          let arbitratorFileId: string | undefined;
-          if (arbitratorPubKey) {
-            const arbResult = uploadFile({
-              content,
-              filename: `${filename || "delivery"}.arb`,
-              contentType, escrowId, uploadedBy,
-              encryptForPubKey: arbitratorPubKey,
-            });
-            arbitratorFileId = arbResult.fileId;
-          }
+          // Encrypt for arbitrator
+          const arbResult = uploadFile({
+            content,
+            filename: `${filename || "delivery"}.arb`,
+            contentType, escrowId, uploadedBy,
+            encryptForPubKey: keys.arbitratorPubKey,
+          });
           return json(res, {
             ok: true,
             fileId: buyerResult.fileId,
-            arbitratorFileId,
+            arbitratorFileId: arbResult.fileId,
             contentHash: buyerResult.contentHash,
             meta: buyerResult.meta,
-            encryption: "server-dual",
+            encryption: "auto-ecies",
           }, 201);
-        } else {
-          // Original: no encryption or client-side single encryption
+        } else if (encryptForPubKey) {
+          // Client-specified encryption key
           const result = uploadFile({
             content, filename, contentType, escrowId, uploadedBy, encryptForPubKey,
           });
-          return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta }, 201);
+          return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta, encryption: "client-ecies" }, 201);
+        } else {
+          // No escrowId — store unencrypted
+          const result = uploadFile({
+            content, filename, contentType, escrowId, uploadedBy,
+          });
+          return json(res, { ok: true, fileId: result.fileId, contentHash: result.contentHash, meta: result.meta, encryption: "none" }, 201);
         }
       } catch (err: any) {
         return json(res, { error: `Upload failed: ${err.message}` }, 500);
