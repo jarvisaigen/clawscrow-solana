@@ -28,25 +28,29 @@ const App = (() => {
 
   // ─── Account Deserialization ───
   function deserializeEscrow(data, pubkey) {
+    // Anchor layout: 8 disc + 8 id + 32 buyer + 32 seller + 32 arb
+    // + 8 pay + 8 buyCol + 8 selCol + 8 deadline + 4+500 desc
+    // + 1 state(@648) + 32 hash(@649) + 8 created(@681) + 8 delivered(@689) + 1 bump + 1 vaultBump
     const buf = Buffer.from(data);
-    let offset = 8;
-    const escrowId = buf.readBigUInt64LE(offset); offset += 8;
-    const buyer = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
-    const seller = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
-    const arbitrator = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
-    const mint = new PublicKey(buf.slice(offset, offset + 32)); offset += 32;
-    const paymentAmount = buf.readBigUInt64LE(offset); offset += 8;
-    const collateralAmount = buf.readBigUInt64LE(offset); offset += 8;
-    offset += 32; // descriptionHash
-    offset += 32; // deliveryHash
-    const state = buf.readUInt8(offset); offset += 1;
-    const createdAt = Number(buf.readBigInt64LE(offset)); offset += 8;
-    const deliveredAt = Number(buf.readBigInt64LE(offset)); offset += 8;
+    const escrowId = buf.readBigUInt64LE(8);
+    const buyer = new PublicKey(buf.slice(16, 48));
+    const seller = new PublicKey(buf.slice(48, 80));
+    const arbitrator = new PublicKey(buf.slice(80, 112));
+    const paymentAmount = buf.readBigUInt64LE(112);
+    const buyerCollateral = buf.readBigUInt64LE(120);
+    const sellerCollateral = buf.readBigUInt64LE(128);
+    const descLen = Math.min(buf.readUInt32LE(144), 500);
+    const description = buf.slice(148, 148 + descLen).toString('utf-8');
+    const state = buf.readUInt8(648);
+    const createdAt = Number(buf.readBigInt64LE(681));
+    const deliveredAt = Number(buf.readBigInt64LE(689));
     return {
       pubkey, escrowId: Number(escrowId),
       buyer: buyer.toBase58(), seller: seller.toBase58(),
-      arbitrator: arbitrator.toBase58(), mint: mint.toBase58(),
-      paymentAmount: Number(paymentAmount), collateralAmount: Number(collateralAmount),
+      arbitrator: arbitrator.toBase58(), description,
+      paymentAmount: Number(paymentAmount),
+      buyerCollateral: Number(buyerCollateral),
+      sellerCollateral: Number(sellerCollateral),
       state: STATE_NAMES[state] || 'unknown', stateIndex: state,
       createdAt: createdAt * 1000, deliveredAt: deliveredAt * 1000,
     };
@@ -153,6 +157,7 @@ const App = (() => {
     list.innerHTML = filtered.map(e => `
       <div class="escrow-card" onclick="App.openJob('${e.pubkey}')">
         <h4>Escrow #${e.escrowId} <span class="escrow-status status-${e.state}">${e.state}</span></h4>
+        ${e.description ? `<p class="escrow-desc">${e.description.length > 120 ? e.description.slice(0, 120) + '…' : e.description}</p>` : ''}
         <div class="escrow-meta">👤 <a href="https://solscan.io/account/${e.buyer}?cluster=devnet" target="_blank">${trunc(e.buyer)}</a> → <a href="https://solscan.io/account/${e.seller}?cluster=devnet" target="_blank">${trunc(e.seller)}</a></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
           <span class="escrow-amount">$${(e.paymentAmount / 1e6).toLocaleString()} USDC</span>
