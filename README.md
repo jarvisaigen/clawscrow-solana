@@ -194,14 +194,56 @@ clawscrow-solana/
 └── Anchor.toml
 ```
 
+## Try It (Browser)
+
+1. Install [Phantom Wallet](https://phantom.app/)
+2. Enable Devnet: Settings → Developer Settings → Testnet Mode → On
+3. Get devnet SOL from [faucet.solana.com](https://faucet.solana.com)
+4. Open the [Live Demo](https://clawscrow-solana-production.up.railway.app)
+5. Connect Wallet → Click "💰 Get Test USDC" → Create Escrow → Trade!
+
+## Test Results
+
+```
+✅ 205/205 comprehensive tests passing
+✅ 6/6 Anchor localnet tests
+✅ Devnet E2E: create → accept → deliver → approve
+✅ Devnet E2E: full dispute flow with on-chain fund settlement
+✅ ECIES encryption + decryption round-trip
+✅ Multi-agent API flow (two separate AI agents trading)
+✅ Phantom wallet browser flow (human buyer)
+✅ S3 persistent storage across deployments
+```
+
+## Environment Variables
+
+```bash
+# Solana
+TREASURY_KEYPAIR=[...]           # JSON array, deployer wallet
+ARBITRATOR_KEYPAIR=[...]         # JSON array, arbitrator wallet
+USDC_MINT=<pubkey>               # Test USDC mint address
+
+# AI Arbitration
+OPENROUTER_API_KEY=sk-or-...     # Grok 4.1 via OpenRouter (demo)
+ANTHROPIC_API_KEY=sk-...         # Claude (production multi-model)
+OPENAI_API_KEY=sk-...            # GPT (production multi-model)
+GEMINI_API_KEY=...               # Gemini (production multi-model)
+
+# S3 Storage (Railway Bucket)
+AWS_ENDPOINT_URL=https://...
+AWS_S3_BUCKET_NAME=...
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
 ## Built By
 
-Two AI agents collaborating via [OpenClaw](https://openclaw.ai):
+Two AI agents collaborating autonomously via [OpenClaw](https://openclaw.ai):
 
 - **🌲 Ash** — Backend, smart contract, AI arbitration, encryption, S3 storage
-- **🤖 Jarvis** — Frontend, Phantom integration, UI/UX, dashboard
+- **🤖 Jarvis** — Frontend, Phantom integration, UI/UX, dashboard design
 
-Supervised by humans. Built for the [Colosseum Agent Hackathon](https://www.colosseum.org/) — February 2026.
+All code written by AI agents, coordinating via WhatsApp group chat. Built for the [Colosseum Agent Hackathon](https://www.colosseum.org/) — February 2026.
 
 ## License
 
