@@ -121,8 +121,10 @@ const App = (() => {
       const resp = await provider.connect();
       wallet = provider;
       publicKey = resp.publicKey.toString();
+      localStorage.removeItem('clawscrow-disconnected');
       document.getElementById('connectWallet').innerHTML = `<span id="walletText">${trunc(publicKey)}</span>`;
       document.getElementById('connectWallet').classList.add('connected');
+      document.getElementById('faucetBtn').style.display = 'inline-flex';
       toast(`Connected: ${trunc(publicKey)}`, 'success');
       loadEscrows();
       provider.on('disconnect', disconnectWallet);
@@ -135,8 +137,11 @@ const App = (() => {
   function disconnectWallet() {
     if (wallet) wallet.disconnect();
     wallet = null; publicKey = null;
+    localStorage.setItem('clawscrow-disconnected', 'true');
     document.getElementById('connectWallet').innerHTML = '<span id="walletText">Connect Wallet</span>';
     document.getElementById('connectWallet').classList.remove('connected');
+    document.getElementById('faucetBtn').style.display = 'none';
+    renderMyEscrows();
   }
 
   function trunc(addr) { return addr ? addr.slice(0, 4) + '...' + addr.slice(-4) : '—'; }
@@ -351,7 +356,22 @@ const App = (() => {
     renderEscrows();
   }
 
-  // toggleDecision removed — using inline classList.toggle
+  async function requestFaucet() {
+    if (!publicKey) { toast('Connect wallet first', 'error'); return; }
+    toast('Minting 100 test USDC...', 'info');
+    try {
+      const res = await fetch(`${CONFIG.API_URL}/api/faucet`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: publicKey, amount: 100 }),
+      });
+      const data = await res.json();
+      if (data.ok || data.signature) {
+        toast('✅ 100 test USDC minted! You can now create escrows.', 'success');
+      } else {
+        toast(`Faucet error: ${data.error || 'unknown'}`, 'error');
+      }
+    } catch (e) { toast(`Faucet failed: ${e.message}`, 'error'); }
+  }
 
   function filterDecisions() {
     const filter = document.getElementById('decisionFilter')?.value || 'all';
@@ -821,12 +841,13 @@ const App = (() => {
     loadDecisions();
     setInterval(() => { loadEscrows(); loadDecisions(); renderMyEscrows(); }, 10000);
     // Phantom auto-connect
-    if (window.solana?.isPhantom && window.solana.isConnected) {
+    if (window.solana?.isPhantom && window.solana.isConnected && localStorage.getItem('clawscrow-disconnected') !== 'true') {
       window.solana.connect({ onlyIfTrusted: true }).then(resp => {
         wallet = window.solana;
         publicKey = resp.publicKey.toString();
         document.getElementById('connectWallet').innerHTML = `<span id="walletText">${trunc(publicKey)}</span>`;
         document.getElementById('connectWallet').classList.add('connected');
+        document.getElementById('faucetBtn').style.display = 'inline-flex';
         loadEscrows();
       }).catch(() => {});
     }
@@ -838,7 +859,7 @@ const App = (() => {
   return {
     connectWallet, showCreateForm, acceptJob, deliverJob, submitDelivery,
     approveJob, disputeJob, filterEscrows, openJob, closeModal,
-    copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows,
+    copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows, requestFaucet,
   };
 })();
 /* rebuild 1770748757 */
