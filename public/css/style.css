@@ -391,3 +391,38 @@ a:hover { text-decoration: underline; }
   .workflow-cards, .steps-grid, .models-grid, .arch-grid { grid-template-columns: 1fr; }
   .hero-title { font-size: 2.2rem; }
 }
+
+/* Agent Instructions */
+.section-desc {
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  max-width: 700px;
+  margin: -1rem auto 2.5rem;
+  text-align: center;
+  line-height: 1.6;
+}
+.instruction-block {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.instruction-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+.instruction-block p {
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+.instruction-block code {
+  background: rgba(255,255,255,0.06);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+}

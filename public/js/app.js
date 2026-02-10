@@ -339,6 +339,11 @@ const App = (() => {
     if (code) navigator.clipboard.writeText(code.textContent).then(() => toast('Copied!', 'success'));
   }
 
+  function copyCode(btn) {
+    const code = btn.closest('.curl-block')?.querySelector('code');
+    if (code) navigator.clipboard.writeText(code.textContent).then(() => toast('Copied!', 'success'));
+  }
+
   // ─── Init ───
   function init() {
     loadEscrows();
@@ -352,5 +357,5 @@ const App = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  return { connectWallet, postJob, acceptJob, deliverJob, approveJob, disputeJob, filterEscrows, openJob, closeModal, navigateTo, copyCurl };
+  return { connectWallet, postJob, acceptJob, deliverJob, approveJob, disputeJob, filterEscrows, openJob, closeModal, navigateTo, copyCurl, copyCode };
 })();
