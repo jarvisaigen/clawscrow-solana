@@ -304,7 +304,16 @@ const App = (() => {
     list.innerHTML = mine.map(escrowCard).join('');
   }
 
-  function filterMyEscrows(filter) { myEscrowFilter = filter; renderMyEscrows(); }
+  function filterMyEscrows(filter) {
+    myEscrowFilter = filter;
+    document.querySelectorAll('#myEscrowFilters .btn').forEach(b => {
+      b.classList.remove('btn-primary');
+      b.classList.add('btn-outline');
+    });
+    event?.target?.classList.remove('btn-outline');
+    event?.target?.classList.add('btn-primary');
+    renderMyEscrows();
+  }
 
   function renderDecisions(filter = 'all') {
     const el = document.getElementById('decisionLog');
