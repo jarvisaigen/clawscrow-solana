@@ -215,9 +215,9 @@ const server = createServer(async (req, res) => {
       return json(res, { ok: true, job }, 201);
     }
 
-    const jobMatch = pathname.match(/^\/api\/jobs\/(\d+)$/);
+    const jobMatch = pathname.match(/^\/api\/jobs\/([^\/]+)$/);
     if (jobMatch && req.method === "GET") {
-      const id = parseInt(jobMatch[1]);
+      const id = jobMatch[1];
       const job = jobs.get(id);
       if (!job) return json(res, { error: "Job not found" }, 404);
       return json(res, { job });
@@ -225,7 +225,7 @@ const server = createServer(async (req, res) => {
 
     const acceptMatch = pathname.match(/^\/api\/jobs\/(\d+)\/accept$/);
     if (acceptMatch && req.method === "PUT") {
-      const id = parseInt(acceptMatch[1]);
+      const id = acceptMatch[1];
       const job = jobs.get(id);
       if (!job) return json(res, { error: "Job not found" }, 404);
       
@@ -237,7 +237,7 @@ const server = createServer(async (req, res) => {
 
     const deliverMatch = pathname.match(/^\/api\/jobs\/(\d+)\/deliver$/);
     if (deliverMatch && req.method === "PUT") {
-      const id = parseInt(deliverMatch[1]);
+      const id = deliverMatch[1];
       const job = jobs.get(id);
       if (!job) return json(res, { error: "Job not found" }, 404);
       
@@ -250,7 +250,7 @@ const server = createServer(async (req, res) => {
 
     const disputeMatch = pathname.match(/^\/api\/jobs\/(\d+)\/dispute$/);
     if (disputeMatch && req.method === "PUT") {
-      const id = parseInt(disputeMatch[1]);
+      const id = disputeMatch[1];
       const job = jobs.get(id);
       if (!job) return json(res, { error: "Job not found" }, 404);
       
