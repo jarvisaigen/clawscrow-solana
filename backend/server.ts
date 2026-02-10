@@ -44,8 +44,8 @@ const STATE_MAP: Record<number, string> = {
   2: "delivered",
   3: "approved",
   4: "disputed",
-  5: "resolved_seller",
-  6: "resolved_buyer",
+  5: "resolved_buyer",
+  6: "resolved_seller",
   7: "cancelled",
 };
 
