@@ -418,7 +418,20 @@ const server = createServer(async (req, res) => {
         );
 
         job.state = result.finalRuling === "BuyerWins" ? "resolved_buyer" : "resolved_seller";
-        return json(res, { ok: true, job, arbitration: result });
+
+        // Submit ruling on-chain to move funds
+        let onChainTx: string | null = null;
+        try {
+          const { initOnChain, resolveDispute } = await import("./onchain");
+          await initOnChain();
+          const onChainResult = await resolveDispute(String(id), result.finalRuling);
+          onChainTx = onChainResult.txSignature;
+          console.log(`[Arbitration] On-chain ruling submitted: ${onChainTx}`);
+        } catch (e: any) {
+          console.error(`[Arbitration] On-chain ruling failed: ${e.message}`);
+        }
+
+        return json(res, { ok: true, job, arbitration: result, onChainTx });
       }
 
       return json(res, { ok: true, job, arbitration: null, message: "API keys not configured — manual arbitration required" });

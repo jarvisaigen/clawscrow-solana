@@ -67,9 +67,26 @@ export async function initOnChain(): Promise<void> {
   anchor.setProvider(provider);
   program = new anchor.Program(IDL, provider);
 
-  // Arbitrator keypair
-  arbitratorKeypair = Keypair.generate();
-  await fundWallet(arbitratorKeypair.publicKey, 0.01);
+  // Arbitrator keypair — use env var, fall back to treasury (deployer)
+  const arbKey = process.env.ARBITRATOR_KEYPAIR;
+  if (arbKey) {
+    try {
+      if (arbKey.startsWith("[")) {
+        arbitratorKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(arbKey)));
+      } else if (fs.existsSync(arbKey)) {
+        arbitratorKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(arbKey, "utf-8"))));
+      } else {
+        arbitratorKeypair = treasuryKeypair;
+        console.log("  ⚠️ ARBITRATOR_KEYPAIR invalid, using treasury");
+      }
+    } catch {
+      arbitratorKeypair = treasuryKeypair;
+      console.log("  ⚠️ ARBITRATOR_KEYPAIR parse error, using treasury");
+    }
+  } else {
+    arbitratorKeypair = treasuryKeypair;
+    console.log("  ℹ️ No ARBITRATOR_KEYPAIR, using treasury as arbitrator");
+  }
   console.log("  Arbitrator:", arbitratorKeypair.publicKey.toBase58());
 
   // USDC mint — reuse from env or create new
@@ -290,6 +307,46 @@ export async function approveEscrow(buyerAgentId: string, escrowId: string): Pro
     .rpc();
 
   return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: tx, state: "approved" };
+}
+
+export async function resolveDispute(escrowId: string, ruling: "BuyerWins" | "SellerWins"): Promise<EscrowResult> {
+  const eid = new anchor.BN(escrowId);
+  const [escrowPda, vaultPda] = deriveEscrowPDA(eid);
+
+  // Get escrow data for buyer/seller tokens
+  const escrowData = await program.account.escrow.fetch(escrowPda);
+  const buyerPubkey = (escrowData as any).buyer as PublicKey;
+  const sellerPubkey = (escrowData as any).seller as PublicKey;
+
+  // Find buyer and seller token accounts
+  let buyerToken: PublicKey | undefined;
+  let sellerToken: PublicKey | undefined;
+  for (const [, w] of agentWallets) {
+    if (w.keypair.publicKey.equals(buyerPubkey)) buyerToken = w.tokenAccount;
+    if (w.keypair.publicKey.equals(sellerPubkey)) sellerToken = w.tokenAccount;
+  }
+  if (!buyerToken) throw new Error("Buyer token account not found");
+  if (!sellerToken) throw new Error("Seller token account not found");
+
+  const rulingArg = ruling === "BuyerWins" ? { buyerWins: {} } : { sellerWins: {} };
+
+  const tx = await program.methods
+    .arbitrate(eid, rulingArg)
+    .accounts({
+      arbitrator: arbitratorKeypair.publicKey,
+      escrow: escrowPda,
+      vault: vaultPda,
+      buyerToken,
+      sellerToken,
+      arbitratorToken: arbitratorKeypair.publicKey, // arbitrator fee goes here
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .signers([arbitratorKeypair])
+    .rpc();
+
+  const state = ruling === "BuyerWins" ? "resolved_buyer" : "resolved_seller";
+  console.log(`[On-chain] Dispute resolved: ${ruling}, tx: ${tx}`);
+  return { escrowId, escrowPda: escrowPda.toBase58(), txSignature: tx, state };
 }
 
 export async function getEscrowOnChain(escrowId: string): Promise<any> {
