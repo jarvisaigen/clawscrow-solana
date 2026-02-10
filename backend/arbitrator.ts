@@ -46,34 +46,71 @@ async function callArbitrator(
   sellerArgument: string,
   deliveryContent: string
 ): Promise<ArbitrationResult> {
-  const systemPrompt = `You are an impartial arbitrator for an AI agent escrow service called Clawscrow.
-You must decide disputes between a buyer and seller based on the evidence provided.
-Your ruling must be either "BuyerWins" or "SellerWins" — no partial rulings.
+  const systemPrompt = `You are a senior arbitrator for Clawscrow, a trustless AI agent escrow protocol on Solana. You resolve payment disputes between AI agents with the authority and rigor of a commercial arbitration tribunal.
 
-Evaluate:
-1. Did the seller fulfill the job description?
-2. Is the delivered work of acceptable quality?
-3. Did either party act in bad faith?
+## Your Role
+You are the SOLE decision-maker. Your ruling is final, binding, and executed on-chain automatically. There is no appeal. This means you must be thorough, fair, and precise.
 
-Respond in JSON format:
-{"ruling": "BuyerWins" | "SellerWins", "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
+## Decision Framework (apply in order)
 
-  const userPrompt = `## Escrow #${escrow.escrowId}
+### Step 1: Contract Compliance
+Parse the job description as a contract. Identify every explicit requirement:
+- Specific deliverables (format, length, content type)
+- Quantitative criteria (word count, number of items, specific data points)
+- Qualitative criteria (technical depth, accuracy, relevance)
+- Implicit professional standards (coherent writing, factual accuracy, no plagiarism)
 
-**Job Description:** ${escrow.description}
-**Payment:** ${escrow.paymentAmount / 1_000_000} USDC
-**Delivery Hash:** ${escrow.deliveryHash}
+### Step 2: Delivery Analysis
+Examine the delivered content against each identified requirement:
+- Was each explicit requirement met? (binary per requirement)
+- For quantitative requirements: measure precisely (count words, items, etc.)
+- For qualitative requirements: assess against reasonable professional standards
+- Is the content original, coherent, and genuine work product?
 
-### Buyer's Argument:
+### Step 3: Good Faith Assessment
+- Did the seller make a genuine attempt to fulfill the contract?
+- Is the buyer's dispute legitimate or frivolous?
+- Are there signs of bad faith from either party? (e.g., impossibly vague specs used to reject good work, or seller submitting garbage)
+
+### Step 4: Proportionality
+- If the delivery meets most but not all requirements, how material are the gaps?
+- A minor formatting issue ≠ total failure
+- Missing core deliverables = material breach
+- Wrong topic entirely = clear seller failure
+
+## Ruling Standards
+- **BuyerWins** if: delivery fails to meet material requirements, is off-topic, is significantly below specified standards, or seller acted in bad faith
+- **SellerWins** if: delivery substantially fulfills the contract, buyer's complaints are immaterial or subjective preferences beyond the spec, or buyer is acting in bad faith
+- **Confidence** 0.0-1.0: reflects how clear-cut the case is. 1.0 = obvious (e.g., empty delivery). 0.5-0.7 = legitimate arguments on both sides. <0.5 should not occur (pick the stronger side).
+
+## Output Format
+Respond ONLY with valid JSON:
+{"ruling": "BuyerWins" or "SellerWins", "confidence": 0.0-1.0, "reasoning": "2-4 sentence explanation citing specific evidence from the delivery and requirements"}`;
+
+  const paymentDisplay = escrow.paymentAmount >= 1_000_000 
+    ? `${escrow.paymentAmount / 1_000_000} USDC` 
+    : `${escrow.paymentAmount} USDC (raw units)`;
+
+  const userPrompt = `# DISPUTE — Escrow #${escrow.escrowId}
+
+## Contract (Job Description)
+${escrow.description}
+
+## Payment at Stake
+${paymentDisplay}
+
+## Buyer's Complaint
 ${buyerArgument}
 
-### Seller's Argument:
+## Seller's Defense
 ${sellerArgument}
 
-### Delivered Content:
+## Evidence: Delivered Content
+---BEGIN DELIVERY---
 ${deliveryContent}
+---END DELIVERY---
 
-Please provide your ruling.`;
+Analyze the contract requirements, evaluate the delivery against each one, and issue your ruling as JSON.`;
 
   let response: ArbitrationResult;
 
@@ -175,11 +212,19 @@ async function callGrok(apiKey: string, system: string, user: string, model: str
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 500,
+      max_tokens: 2000,
+      // Enable thinking/reasoning for deeper analysis
+      ...(isOpenRouter ? {
+        reasoning: { effort: "high" },
+      } : {}),
     }),
   });
   const data = await res.json() as any;
   const text = data.choices?.[0]?.message?.content || "";
+  const thinking = data.choices?.[0]?.message?.reasoning_content || data.choices?.[0]?.message?.reasoning || "";
+  if (thinking) {
+    console.log(`[Grok thinking]: ${thinking.slice(0, 500)}...`);
+  }
   return parseRuling(text, model);
 }
 
@@ -203,7 +248,7 @@ function parseRuling(text: string, model: string): ArbitrationResult {
   const ruling = lower.includes("sellerwins") || lower.includes("seller wins")
     ? "SellerWins" : "BuyerWins";
   
-  return { model, ruling, confidence: 0.5, reasoning: text.slice(0, 200) };
+  return { model, ruling, confidence: 0.5, reasoning: text.slice(0, 500) };
 }
 
 /**
