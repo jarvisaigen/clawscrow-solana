@@ -313,12 +313,40 @@ export async function resolveDispute(escrowId: string, ruling: "BuyerWins" | "Se
   const eid = new anchor.BN(escrowId);
   const [escrowPda, vaultPda] = deriveEscrowPDA(eid);
 
-  // Get escrow data for buyer/seller pubkeys
+  // Get escrow data
   const escrowData = await program.account.escrow.fetch(escrowPda);
   const buyerPubkey = (escrowData as any).buyer as PublicKey;
   const sellerPubkey = (escrowData as any).seller as PublicKey;
+  const escrowState = (escrowData as any).state;
 
-  // Derive Associated Token Accounts from chain (not in-memory)
+  // Step 1: If escrow is in "delivered" state, raise dispute on-chain first
+  // State enum: Created=0, Accepted=1, Delivered=2, Disputed=3, ...
+  const stateValue = typeof escrowState === 'object' ? Object.keys(escrowState)[0] : escrowState;
+  if (stateValue === 'delivered' || stateValue === 2) {
+    console.log("[On-chain] Raising dispute first...");
+    // Find buyer wallet in agent map
+    let buyerKeypair: Keypair | undefined;
+    for (const [, w] of agentWallets) {
+      if (w.keypair.publicKey.equals(buyerPubkey)) {
+        buyerKeypair = w.keypair;
+        break;
+      }
+    }
+    if (!buyerKeypair) {
+      throw new Error("Buyer wallet not found in-memory — escrow was created in a previous server session. Cannot raise dispute on-chain.");
+    }
+    await program.methods
+      .raiseDispute()
+      .accounts({
+        buyer: buyerKeypair.publicKey,
+        escrow: escrowPda,
+      })
+      .signers([buyerKeypair])
+      .rpc();
+    console.log("[On-chain] Dispute raised successfully");
+  }
+
+  // Step 2: Arbitrate — resolve the dispute with ruling
   const { getOrCreateAssociatedTokenAccount } = await import("@solana/spl-token");
   
   const buyerAta = await getOrCreateAssociatedTokenAccount(
