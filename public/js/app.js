@@ -88,6 +88,8 @@ const App = (() => {
       wallet = provider; publicKey = resp.publicKey.toString();
       document.getElementById('connectWallet').innerHTML = `<span id="walletText">${trunc(publicKey)}</span>`;
       document.getElementById('connectWallet').classList.add('connected');
+      const createForm = document.getElementById('createEscrowForm');
+      if (createForm) createForm.style.display = 'block';
       toast(`Connected: ${trunc(publicKey)}`, 'success');
       loadEscrows();
       provider.on('disconnect', disconnectWallet);
@@ -101,6 +103,8 @@ const App = (() => {
     wallet = null; publicKey = null;
     document.getElementById('connectWallet').innerHTML = '<span id="walletText">Connect Wallet</span>';
     document.getElementById('connectWallet').classList.remove('connected');
+    const createForm = document.getElementById('createEscrowForm');
+    if (createForm) createForm.style.display = 'none';
   }
   function trunc(addr) { return addr ? addr.slice(0, 4) + '...' + addr.slice(-4) : '—'; }
 
@@ -178,7 +182,7 @@ const App = (() => {
         ${e.description ? `<p class="escrow-desc">${e.description.length > 120 ? e.description.slice(0, 120) + '…' : e.description}</p>` : ''}
         <div class="escrow-meta">👤 <a href="https://solscan.io/account/${e.buyer}?cluster=devnet" target="_blank">${trunc(e.buyer)}</a> → <a href="https://solscan.io/account/${e.seller}?cluster=devnet" target="_blank">${trunc(e.seller)}</a></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-          <span class="escrow-amount">$${(e.paymentAmount / 1e6).toLocaleString()} USDC</span>
+          <span class="escrow-amount">$${e.paymentAmount} USDC</span>
           <span style="font-size:0.75rem;color:var(--text-muted)">${timeAgo(e.createdAt)}</span>
         </div>
       </div>
@@ -220,9 +224,9 @@ const App = (() => {
     document.getElementById('modalTitle').textContent = `Escrow #${job.escrowId}`;
     document.getElementById('modalStatus').textContent = job.state.toUpperCase();
     document.getElementById('modalStatus').className = `escrow-status status-${job.state}`;
-    document.getElementById('modalReward').textContent = `$${(job.paymentAmount / 1e6).toLocaleString()} USDC`;
+    document.getElementById('modalReward').textContent = `$${job.paymentAmount} USDC`;
     document.getElementById('modalDeadline').textContent = (job.buyerCollateral || job.collateralAmount || 0) > 0 
-      ? `$${((job.buyerCollateral || job.collateralAmount || 0) / 1e6).toLocaleString()} USDC collateral` : 'None';
+      ? `$${job.buyerCollateral || job.collateralAmount || 0} USDC collateral` : 'None';
     document.getElementById('modalPoster').textContent = trunc(job.buyer);
     const noSeller = !job.seller || job.seller === '11111111111111111111111111111111';
     document.getElementById('modalWorker').textContent = noSeller ? 'Awaiting agent...' : trunc(job.seller);
@@ -292,45 +296,53 @@ const App = (() => {
     if (!publicKey) { toast('Connect wallet first', 'error'); return; }
     const reward = parseFloat(document.getElementById('jobReward')?.value);
     const description = document.getElementById('jobDescription')?.value;
+    const collateral = parseFloat(document.getElementById('jobCollateral')?.value) || 1;
     if (!reward || !description) { toast('Fill in all fields', 'error'); return; }
     try {
-      const escrowId = Date.now();
-      const descHash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(description)));
-      const [escrowPDA] = await findEscrowPDA(publicKey, escrowId);
-      const [vaultPDA] = await findVaultPDA(escrowPDA.toBase58());
-      const buyerATA = getAssociatedTokenAddress(publicKey, CONFIG.USDC_MINT.toBase58());
-      const disc = await computeDiscriminator('create_escrow');
-      const data = Buffer.concat([Buffer.from(disc), encodeLittleEndianU64(escrowId), encodeLittleEndianU64(Math.round(reward * 1e6)), encodeLittleEndianU64(0), Buffer.from(descHash)]);
-      const ix = new TransactionInstruction({ programId: CONFIG.PROGRAM_ID, keys: [
-        { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: true },
-        { pubkey: new PublicKey(publicKey), isSigner: false, isWritable: false },
-        { pubkey: CONFIG.USDC_MINT, isSigner: false, isWritable: false },
-        { pubkey: escrowPDA, isSigner: false, isWritable: true },
-        { pubkey: vaultPDA, isSigner: false, isWritable: true },
-        { pubkey: buyerATA, isSigner: false, isWritable: true },
-        { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-      ], data });
-      toast('Approve in Phantom...', 'info');
-      const sig = await sendTx(ix);
-      if (sig) { toast(`Created! ${trunc(sig)}`, 'success'); loadEscrows(); }
+      // First register wallet as agent if needed
+      await fetch(`${CONFIG.API_URL}/api/agents/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: publicKey })
+      });
+      toast('Creating escrow on-chain...', 'info');
+      const res = await fetch(`${CONFIG.API_URL}/api/escrows/create`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          buyerAgentId: publicKey,
+          description,
+          paymentAmount: Math.round(reward),
+          buyerCollateral: Math.round(collateral),
+          sellerCollateral: Math.round(collateral)
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast(`Created! Escrow #${data.escrowId}`, 'success');
+        loadEscrows();
+      } else {
+        toast(`Failed: ${data.error}`, 'error');
+      }
     } catch (err) { toast(`Failed: ${err.message}`, 'error'); }
   }
 
-  async function acceptJob(pubkey) {
-    const job = escrows.find(e => e.pubkey === pubkey); if (!job) return;
-    const [vaultPDA] = await findVaultPDA(pubkey);
-    const sellerATA = getAssociatedTokenAddress(publicKey, job.mint);
-    const disc = await computeDiscriminator('accept_escrow');
-    const sig = await sendTx(new TransactionInstruction({ programId: CONFIG.PROGRAM_ID, keys: [
-      { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: true },
-      { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
-      { pubkey: vaultPDA, isSigner: false, isWritable: true },
-      { pubkey: sellerATA, isSigner: false, isWritable: true },
-      { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ], data: Buffer.from(disc) }));
-    if (sig) { toast('Accepted!', 'success'); closeModal(); loadEscrows(); }
+  async function acceptJob(pubkeyOrId) {
+    const job = escrows.find(e => e.pubkey === pubkeyOrId || e.escrowId == pubkeyOrId);
+    if (!job) return;
+    try {
+      // Register as agent
+      await fetch(`${CONFIG.API_URL}/api/agents/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: publicKey })
+      });
+      toast('Accepting on-chain...', 'info');
+      const res = await fetch(`${CONFIG.API_URL}/api/escrows/accept`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sellerAgentId: publicKey, escrowId: String(job.escrowId) })
+      });
+      const data = await res.json();
+      if (data.ok) { toast('Accepted!', 'success'); closeModal(); loadEscrows(); }
+      else toast(`Failed: ${data.error}`, 'error');
+    } catch (err) { toast(`Failed: ${err.message}`, 'error'); }
   }
 
   async function deliverJob(pubkey) {
@@ -423,10 +435,10 @@ const App = (() => {
 
         toast('File uploaded! Delivering on-chain...', 'info');
         
-        // Deliver via API (agent flow) since Phantom TX building is complex
-        const deliverRes = await fetch(`${CONFIG.API_URL}/api/jobs/${job.escrowId}/deliver`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contentHash: uploadData.contentHash, fileId: uploadData.fileId })
+        // Deliver via API — backend handles on-chain TX
+        const deliverRes = await fetch(`${CONFIG.API_URL}/api/escrows/deliver`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sellerAgentId: publicKey || 'phantom-user', escrowId: String(job.escrowId), contentHash: uploadData.contentHash })
         });
         const deliverData = await deliverRes.json();
         
@@ -440,28 +452,41 @@ const App = (() => {
     };
   }
 
-  async function approveJob(pubkey) {
-    const job = escrows.find(e => e.pubkey === pubkey); if (!job) return;
-    const [vaultPDA] = await findVaultPDA(pubkey);
-    const sellerATA = getAssociatedTokenAddress(job.seller, job.mint);
-    const disc = await computeDiscriminator('approve');
-    const sig = await sendTx(new TransactionInstruction({ programId: CONFIG.PROGRAM_ID, keys: [
-      { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false },
-      { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
-      { pubkey: vaultPDA, isSigner: false, isWritable: true },
-      { pubkey: sellerATA, isSigner: false, isWritable: true },
-      { pubkey: CONFIG.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ], data: Buffer.from(disc) }));
-    if (sig) { toast('Approved! Funds released.', 'success'); closeModal(); loadEscrows(); }
+  async function approveJob(pubkeyOrId) {
+    const job = escrows.find(e => e.pubkey === pubkeyOrId || e.escrowId == pubkeyOrId);
+    if (!job) return;
+    try {
+      toast('Approving on-chain...', 'info');
+      const res = await fetch(`${CONFIG.API_URL}/api/escrows/approve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buyerAgentId: publicKey, escrowId: String(job.escrowId) })
+      });
+      const data = await res.json();
+      if (data.ok) { toast('Approved! Funds released. 🦞', 'success'); closeModal(); loadEscrows(); }
+      else toast(`Failed: ${data.error}`, 'error');
+    } catch (err) { toast(`Failed: ${err.message}`, 'error'); }
   }
 
-  async function disputeJob(pubkey) {
-    const disc = await computeDiscriminator('dispute');
-    const sig = await sendTx(new TransactionInstruction({ programId: CONFIG.PROGRAM_ID, keys: [
-      { pubkey: new PublicKey(publicKey), isSigner: true, isWritable: false },
-      { pubkey: new PublicKey(pubkey), isSigner: false, isWritable: true },
-    ], data: Buffer.from(disc) }));
-    if (sig) { toast('Dispute filed!', 'success'); closeModal(); loadEscrows(); }
+  async function disputeJob(pubkeyOrId) {
+    const job = escrows.find(e => e.pubkey === pubkeyOrId || e.escrowId == pubkeyOrId);
+    if (!job) return;
+    const reason = prompt('Why are you disputing this delivery?');
+    if (!reason) return;
+    try {
+      toast('Filing dispute + AI arbitration...', 'info');
+      const res = await fetch(`${CONFIG.API_URL}/api/jobs/${job.escrowId}/dispute`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const ruling = data.arbitration?.finalRuling || 'pending';
+        const reasoning = data.arbitration?.votes?.[0]?.reasoning || '';
+        toast(`Dispute resolved: ${ruling}`, ruling === 'BuyerWins' ? 'success' : 'info');
+        if (reasoning) alert(`AI Arbitrator Ruling: ${ruling}\n\n${reasoning}`);
+        closeModal(); loadEscrows();
+      } else toast(`Failed: ${data.error}`, 'error');
+    } catch (err) { toast(`Failed: ${err.message}`, 'error'); }
   }
 
   // ─── Helpers ───
