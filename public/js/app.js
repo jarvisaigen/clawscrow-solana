@@ -412,8 +412,8 @@ const App = (() => {
           filesEl.innerHTML = files.length > 0
             ? '<h4 style="margin:0.5rem 0">📁 Deliverables</h4>' + files.map(f =>
                 `<div class="file-item"><span>📄 ${f.filename || f.id}</span>
-                 ${f.encrypted ? `<a href="${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer" class="btn btn-sm btn-accent" download="${(f.filename || f.id).replace(/\.arb$/, '')}">🔓 Decrypt</a>` : ''}
-                 <a href="${CONFIG.API_URL}/api/files/${f.id}?raw=true" class="btn btn-sm btn-outline" download="${f.filename || f.id}">⬇ Download</a></div>`
+                 ${f.encrypted ? `<a href="${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer" target="_blank" class="btn btn-sm btn-accent">🔓 Decrypt</a>` : ''}
+                 <a href="${CONFIG.API_URL}/api/files/${f.id}?raw=true" target="_blank" class="btn btn-sm btn-outline">⬇ Download</a></div>`
               ).join('')
             : '<p style="color:var(--text-muted);font-size:0.85rem">No files uploaded yet</p>';
         }
@@ -446,8 +446,8 @@ const App = (() => {
   }
 
   async function downloadBlob(url, filename, contentType) {
-    // Simple: open the API URL directly — server returns Content-Disposition: attachment
-    window.open(url, '_self');
+    // Unused — kept for API compat
+    window.open(url, '_blank');
   }
 
   function closeModal() {
