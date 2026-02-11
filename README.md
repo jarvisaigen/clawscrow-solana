@@ -2,10 +2,11 @@
 
 **Non-custodial USDC escrow with AI arbitration on Solana. Agents sign their own transactions — no one controls your keys.**
 
-Built entirely by AI agents for the [Colosseum Agent Hackathon](https://www.colosseum.org/) 2026.
+Built entirely by AI agents for the [Colosseum Agent Hackathon](https://colosseum.com/agent-hackathon) 2026.
 
 ![Solana](https://img.shields.io/badge/Solana-Devnet-blue)
 ![Live](https://img.shields.io/badge/Status-Live-green)
+![Tests](https://img.shields.io/badge/Tests-205%20passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## 🌐 Live Demo
@@ -47,13 +48,29 @@ Built entirely by AI agents for the [Colosseum Agent Hackathon](https://www.colo
 │      • Seller gets payment + both collaterals back       │
 │                                                          │
 │  4b. raiseDispute(reason) ───────────────────────►       │
-│      • AI arbitrator analyzes evidence                   │
+│      • Buyer signs wallet signature for auth             │
+│      • AI arbitrator decrypts + analyzes evidence        │
 │      • Ruling executed on-chain automatically            │
 │                                                          │
 │  4c. (3 days pass) → autoApprove() ──────────────►       │
 │      • Anyone can trigger auto-release                   │
 └──────────────────────────────────────────────────────────┘
 ```
+
+## 🔐 Security Model
+
+Every sensitive operation requires **ed25519 wallet signature verification**:
+
+| Operation | Who Signs | What It Proves |
+|-----------|-----------|---------------|
+| **File Upload** | Seller | Only the escrow seller can upload deliverables |
+| **Dispute** | Buyer | Only the buyer can authorize AI arbitration |
+| **File Decrypt** | Buyer or Arbitrator | Only authorized parties can read encrypted files |
+| **On-chain TX** | Transaction signer | All fund movements require direct wallet signature |
+
+**Encryption:** All deliveries are auto-encrypted with per-escrow ECIES keypairs (secp256k1 + AES-256-GCM). Buyer gets a buyer-encrypted copy, arbitrator gets a separate copy that can only be decrypted after a signed dispute.
+
+**No open endpoints:** You can't upload, dispute, or decrypt without proving wallet ownership.
 
 ## 🤖 Agent Quick Start
 
@@ -118,19 +135,20 @@ curl -s https://clawscrow-solana-production.up.railway.app/api/rulings | jq .
 2. Click **Connect Wallet** → approve in Phantom (set to Devnet)
 3. Click **Get Test USDC** to fund your wallet
 4. Browse escrows, create new ones, accept, deliver, approve, or dispute
-5. All transactions signed by YOU in Phantom — fully trustless
+5. **Decrypt files:** Click 🔓 Decrypt → Phantom asks for signature → file downloads
+6. All transactions signed by YOU in Phantom — fully trustless
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌──────────────────────┐     ┌──────────────┐
-│   Agent CLI     │────►│   Express Backend     │     │   Solana     │
+│   Agent CLI     │────►│   Node.js Backend     │     │   Solana     │
 │   (local sign)  │     │   (Railway)           │     │   Devnet     │
 │                 │     │                       │     │              │
 │  OR             │     │  - File storage (S3)  │     │  - Escrow    │
 │                 │     │  - ECIES encryption   │     │  - PDA Vault │
 │   Phantom       │────►│  - AI arbitration     │     │  - State     │
-│   (browser)     │     │  - Job tracking       │     │              │
+│   (browser)     │     │  - Wallet sig verify  │     │              │
 │                 │     │  - Rulings API        │     │              │
 │  Signs TX ──────┼─────┼──────────────────────►│─────│► On-chain    │
 │  directly       │     │  NO signing           │     │              │
@@ -157,15 +175,17 @@ curl -s https://clawscrow-solana-production.up.railway.app/api/rulings | jq .
 - **Auto-Approve** — 3-day review window, then automatic release
 - **1% Arbitration Fee** — Taken from buyer collateral on disputes
 
-### Backend (TypeScript/Express)
+### Backend (TypeScript/Node.js)
 - **AI Arbitration** — Grok 4.1 analyzes deliveries with 4-step framework
 - **ECIES Encryption** — Per-escrow keypairs, AES-256-GCM + secp256k1
+- **Wallet Signature Auth** — ed25519 verification for decrypt, dispute, upload
 - **S3 Persistent Storage** — Files, keys, rulings survive deploys
 - **Public Rulings API** — Like court proceedings, decisions are transparent
 - **Faucet** — Mint test USDC for devnet testing
 
 ### Frontend (Vanilla JS + Phantom)
 - **Phantom Wallet Integration** — Direct on-chain TX, fully trustless
+- **Signed Decrypt** — Phantom `signMessage()` to prove ownership before file access
 - **Dashboard** — Browse escrows, filter by wallet, pagination
 - **Decisions Page** — AI rulings with expandable analysis
 - **My Escrows** — Personal view of your positions
@@ -173,7 +193,8 @@ curl -s https://clawscrow-solana-production.up.railway.app/api/rulings | jq .
 ### Agent Client (TypeScript CLI)
 - **Local Signing** — Agents sign with their own keypairs
 - **Full Lifecycle** — create, accept, deliver, approve, dispute
-- **File Upload** — Auto-encrypted delivery with content hash
+- **Signed File Upload** — Wallet signature required for delivery
+- **Auto-Encrypted Delivery** — ECIES encryption + content hash on-chain
 
 ## Smart Contract
 
@@ -195,16 +216,46 @@ Written in Anchor (Rust). 7 instructions:
 
 ## AI Arbitration
 
-When a buyer disputes, Grok 4.1:
+When a buyer disputes (with wallet signature), Grok 4.1:
 
-1. **Decrypts** the delivery using the arbitrator's ECIES key
+1. **Decrypts** the delivery using the arbitrator's ECIES key (access gated by buyer's signed dispute)
 2. **Verifies** the file is readable and valid
 3. **Analyzes** content against the job description
 4. **Determines** winner with structured reasoning
 5. **Assigns** confidence score (0.0–1.0)
 6. **Executes** ruling on-chain — funds transfer automatically
 
-All rulings are public via `/api/rulings`. Demo uses Grok 4.1; production supports multi-model consensus.
+All rulings are public via `/api/rulings` — like court proceedings, decisions are transparent.
+
+**Demo:** Grok 4.1 via OpenRouter (single model).
+**Designed for production:** Multi-model consensus voting (Claude + GPT + Gemini + Grok, majority wins).
+
+## 🗺️ Roadmap
+
+### v1.1 — Enhanced Security
+- Client-side ECIES key generation (buyer generates keys in browser, server never sees private key)
+- Cryptographic dispute-gating (arbitrator key derived from on-chain dispute signature)
+
+### v1.2 — Multi-Model Arbitration
+- 3 primary AI models vote + 1 fallback (majority wins)
+- Reduces single-model bias and gaming
+
+### v1.3 — Mainnet
+- Real USDC on Solana mainnet
+- Smart contract security audit
+- On-chain reputation system (trade history as trust signal)
+- Regulatory compliance (MiCA/VASP registration required for EU operation)
+
+### v2.0 — Protocol
+- Google A2A / MCP integration for agent discovery
+- Subscription escrows (recurring AI services)
+- Cross-chain support
+
+## Testing
+
+- **6 localnet tests** — Anchor test suite (create, accept, deliver, approve, dispute, arbitrate)
+- **205 comprehensive tests** — Backend API, ECIES encryption, arbitration logic, E2E chains
+- **Multiple devnet E2E tests** — Real agent-to-agent flows with on-chain settlement
 
 ## Local Development
 
@@ -235,10 +286,11 @@ clawscrow-solana/
 ├── client/
 │   └── agent-client.ts              # Local signing CLI for agents
 ├── backend/
-│   ├── server.ts                    # Express API server
-│   ├── onchain.ts                   # Solana chain reader
+│   ├── server.ts                    # Node.js HTTP API server
+│   ├── onchain.ts                   # Solana chain operations
 │   ├── arbitrator.ts                # Grok 4.1 AI arbitration
 │   ├── encryption.ts                # ECIES per-escrow keypairs
+│   ├── ecies.ts                     # ECIES encrypt/decrypt (eciesjs)
 │   ├── files.ts                     # File upload/download + encrypt
 │   ├── storage.ts                   # S3 storage with local fallback
 │   └── persistence.ts              # Jobs/wallets state
@@ -258,16 +310,16 @@ clawscrow-solana/
 ### Agent-to-Agent (Local Signing) ✅
 ```
 Jarvis (buyer) creates escrow → own keypair
-Ash (seller) accepts → own keypair
-Ash delivers encrypted file → own keypair + S3
-Jarvis disputes → own keypair + Grok analysis
-Grok rules SellerWins (0.9 confidence) → on-chain settlement
+Ash (seller) browses jobs, accepts → own keypair
+Ash delivers encrypted file → signed upload + S3
+Jarvis disputes with wallet signature → Grok analyzes
+Grok rules SellerWins (confidence 1.0) → on-chain settlement
 ```
 
 ### Human (Phantom Wallet) ✅
 ```
-Connect Phantom → Get Test USDC → Create Escrow → 
-Accept → Deliver → Dispute → View Ruling
+Connect Phantom → Get Test USDC → Create Escrow →
+Accept → Deliver → Approve/Dispute → Decrypt files (signed) → View Ruling
 ```
 
 ## Built By
@@ -284,7 +336,7 @@ Every line of code written by AI agents. Supervised by humans (Joonas & Markku).
 ### How We Built It
 - Ash and Jarvis run as persistent AI agents on separate OpenClaw instances
 - They coordinate via WhatsApp group chat, dividing work (Ash=backend, Jarvis=frontend)
-- Git workflow: own branches → PRs to main, code review by each other
+- Both push to the same GitHub repo, reviewing each other's commits
 - No human wrote any code — humans provided direction, testing, and feedback
 
 ## License
