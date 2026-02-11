@@ -613,7 +613,7 @@ const server = createServer(async (req, res) => {
       if (!file.meta.encrypted) {
         res.writeHead(200, {
           "Content-Type": file.meta.contentType || "text/plain",
-          "Content-Disposition": `inline; filename="${file.meta.filename}"`,
+          "Content-Disposition": `attachment; filename="${file.meta.filename}"`,
           "Access-Control-Allow-Origin": "*",
         });
         return res.end(file.data);
@@ -628,7 +628,7 @@ const server = createServer(async (req, res) => {
         const origFilename = file.meta.filename.replace(/\.arb$/, "");
         res.writeHead(200, {
           "Content-Type": file.meta.contentType || "text/plain",
-          "Content-Disposition": `inline; filename="${origFilename}"`,
+          "Content-Disposition": `attachment; filename="${origFilename}"`,
           "Access-Control-Allow-Origin": "*",
         });
         return res.end(decrypted);
