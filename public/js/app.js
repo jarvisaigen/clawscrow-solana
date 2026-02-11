@@ -412,7 +412,7 @@ const App = (() => {
           filesEl.innerHTML = files.length > 0
             ? '<h4 style="margin:0.5rem 0">📁 Deliverables</h4>' + files.map(f =>
                 `<div class="file-item"><span>📄 ${f.filename || f.id}</span>
-                 ${f.encrypted ? `<a href="${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer" target="_blank" class="btn btn-sm btn-accent">🔓 Decrypt</a>` : ''}
+                 ${f.encrypted ? `<button onclick="App.decryptFile('${f.id}', '${job.escrowId}', '${(f.filename || f.id).replace(/'/g, "\\'")}')" class="btn btn-sm btn-accent">🔓 Decrypt</button>` : ''}
                  <a href="${CONFIG.API_URL}/api/files/${f.id}?raw=true" target="_blank" class="btn btn-sm btn-outline">⬇ Download</a></div>`
               ).join('')
             : '<p style="color:var(--text-muted);font-size:0.85rem">No files uploaded yet</p>';
@@ -445,9 +445,42 @@ const App = (() => {
     modal.classList.add('active');
   }
 
-  async function downloadBlob(url, filename, contentType) {
-    // Unused — kept for API compat
-    window.open(url, '_blank');
+  async function decryptFile(fileId, escrowId, filename) {
+    if (!publicKey) { toast('Connect wallet first to decrypt', 'error'); return; }
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Signing...'; }
+    try {
+      // Sign a challenge message with Phantom to prove wallet ownership
+      const message = `Clawscrow decrypt: ${fileId} escrow ${escrowId} ts ${Date.now()}`;
+      const encoded = new TextEncoder().encode(message);
+      const { signature } = await window.solana.signMessage(encoded, 'utf8');
+      const sigBase64 = btoa(String.fromCharCode(...signature));
+      
+      if (btn) btn.textContent = '⏳ Decrypting...';
+      const res = await fetch(`${CONFIG.API_URL}/api/files/${fileId}/decrypt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ escrowId, wallet: publicKey, signature: sigBase64, message })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+      if (btn) { btn.disabled = false; btn.textContent = '🔓 Decrypt'; }
+      toast('File decrypted successfully', 'success');
+    } catch (e) {
+      toast('Decrypt failed: ' + e.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '🔓 Decrypt'; }
+    }
   }
 
   function closeModal() {
@@ -866,7 +899,7 @@ const App = (() => {
 
   return {
     connectWallet, showCreateForm, acceptJob, deliverJob, submitDelivery,
-    approveJob, disputeJob, filterEscrows, openJob, closeModal, downloadBlob,
+    approveJob, disputeJob, filterEscrows, openJob, closeModal, decryptFile,
     copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows, requestFaucet,
   };
 })();

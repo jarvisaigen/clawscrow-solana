@@ -62,6 +62,7 @@ interface Job {
   description: string;
   buyer: string;
   seller?: string;
+  arbitrator?: string;
   paymentAmount: number;
   buyerCollateral: number;
   sellerCollateral: number;
@@ -69,6 +70,7 @@ interface Job {
   createdAt: number;
   deliveryHash?: string;
   fileId?: string;
+  deliveredAt?: number;
   onChain: boolean;
 }
 
@@ -104,6 +106,7 @@ function parseEscrowAccount(data: Buffer, meta?: JobMeta): Job {
     description: description || meta?.description || `Escrow #${escrowId}`,
     buyer,
     seller: sellerStr,
+    arbitrator,
     paymentAmount,
     buyerCollateral,
     sellerCollateral,
@@ -288,7 +291,7 @@ const server = createServer(async (req, res) => {
           "POST /api/files": "Upload file (auto-encrypted if escrowId provided)",
           "GET /api/files": "List files (?escrowId= to filter)",
           "GET /api/files/:fileId": "File metadata (?raw=true for download)",
-          "GET /api/files/:fileId/decrypt": "Decrypt file (?escrowId=X&role=buyer|arbitrator)",
+          "POST /api/files/:fileId/decrypt": "Decrypt file (requires wallet signature: { escrowId, wallet, signature, message })",
           "GET /api/rulings": "All AI rulings (public)",
           "GET /api/rulings/:escrowId": "Specific ruling with full analysis",
           "POST /api/faucet": "Mint test USDC (devnet only) {address, amount}",
@@ -599,15 +602,52 @@ const server = createServer(async (req, res) => {
       return json(res, { files: fileList, count: fileList.length });
     }
 
-    // Decrypt file for buyer (server-managed keys)
+    // Decrypt file — requires wallet signature to prove identity (buyer or arbitrator)
+    // POST /api/files/:id/decrypt  { escrowId, wallet, signature, message }
+    // Signature must be ed25519 over `message` by `wallet`, and wallet must be escrow buyer/arbitrator.
     const decryptMatch = pathname.match(/^\/api\/files\/([a-f0-9-]+)\/decrypt$/);
-    if (decryptMatch && req.method === "GET") {
+    if (decryptMatch && (req.method === "POST" || req.method === "GET")) {
+      // Legacy GET without auth — reject with upgrade instructions
+      if (req.method === "GET") {
+        return json(res, { 
+          error: "Authentication required. Use POST with { escrowId, wallet, signature, message }.",
+          hint: "Sign `message` with your wallet's ed25519 key to prove ownership."
+        }, 401);
+      }
+
       const fileId = decryptMatch[1];
-      const escrowId = url.searchParams.get("escrowId");
-      const role = url.searchParams.get("role") || "buyer";
-      
-      if (!escrowId) return json(res, { error: "Missing ?escrowId= parameter" }, 400);
-      
+      const body = await parseBody(req);
+      const { escrowId, wallet, signature, message } = body;
+
+      if (!escrowId || !wallet || !signature || !message) {
+        return json(res, { error: "Missing required fields: escrowId, wallet, signature, message" }, 400);
+      }
+
+      // Verify ed25519 signature
+      try {
+        const { ed25519 } = await import("@noble/curves/ed25519");
+        const walletPubkey = new PublicKey(wallet);
+        const sigBytes = typeof signature === "string" ? Buffer.from(signature, "base64") : signature;
+        const msgBytes = typeof message === "string" ? new TextEncoder().encode(message) : message;
+        const valid = ed25519.verify(sigBytes, msgBytes, walletPubkey.toBytes());
+        if (!valid) {
+          return json(res, { error: "Invalid signature" }, 403);
+        }
+      } catch (err: any) {
+        return json(res, { error: `Signature verification failed: ${err.message}` }, 403);
+      }
+
+      // Check wallet is buyer or arbitrator for this escrow
+      const escrow = await fetchEscrowById(escrowId);
+      if (!escrow) return json(res, { error: "Escrow not found on-chain" }, 404);
+
+      const isBuyer = escrow.buyer === wallet;
+      const isArbitrator = escrow.arbitrator === wallet;
+      if (!isBuyer && !isArbitrator) {
+        return json(res, { error: "Wallet is not buyer or arbitrator for this escrow" }, 403);
+      }
+      const role = isArbitrator ? "arbitrator" : "buyer";
+
       const file = await downloadFile(fileId);
       if (!file) return json(res, { error: "File not found" }, 404);
       if (!file.meta.encrypted) {
@@ -637,36 +677,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    // Generate keypair (for demo/testing — DO NOT use in production)
-    if (pathname === "/api/ecies/keypair" && req.method === "GET") {
-      const kp = generateKeyPair();
-      return json(res, kp);
-    }
-
-    // Server-side decrypt (for demo — in production, decrypt client-side)
-    if (pathname === "/api/ecies/decrypt" && req.method === "POST") {
-      const body = await parseBody(req);
-      const { fileId, privateKey } = body;
-      if (!fileId || !privateKey) {
-        return json(res, { error: "Missing fileId or privateKey" }, 400);
-      }
-      const file = await downloadFile(fileId);
-      if (!file) return json(res, { error: "File not found" }, 404);
-      if (!file.meta.encrypted) {
-        return json(res, { error: "File is not encrypted" }, 400);
-      }
-      try {
-        const decrypted = decryptWithPrivateKey(privateKey, file.data);
-        return json(res, {
-          ok: true,
-          content: decrypted.toString("base64"),
-          contentType: file.meta.contentType,
-          filename: file.meta.filename,
-        });
-      } catch (err: any) {
-        return json(res, { error: `Decryption failed: ${err.message}` }, 400);
-      }
-    }
+    // ECIES keypair/decrypt endpoints removed — decrypt now requires wallet signature auth
 
     // Download file by ID
     const fileMatch = pathname.match(/^\/api\/files\/([a-f0-9-]+)$/);
