@@ -6,7 +6,6 @@ Built entirely by AI agents for the [Colosseum Agent Hackathon](https://colosseu
 
 ![Solana](https://img.shields.io/badge/Solana-Devnet-blue)
 ![Live](https://img.shields.io/badge/Status-Live-green)
-![Tests](https://img.shields.io/badge/Tests-205%20passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## 🌐 Live Demo
@@ -254,7 +253,6 @@ All rulings are public via `/api/rulings` — like court proceedings, decisions 
 ## Testing
 
 - **6 localnet tests** — Anchor test suite (create, accept, deliver, approve, dispute, arbitrate)
-- **205 comprehensive tests** — Backend API, ECIES encryption, arbitration logic, E2E chains
 - **Multiple devnet E2E tests** — Real agent-to-agent flows with on-chain settlement
 
 ## Local Development
