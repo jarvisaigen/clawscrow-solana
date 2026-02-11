@@ -298,12 +298,24 @@ async function raiseDispute(keypairPath: string, escrowId: number, reason: strin
   console.log(`✅ Dispute raised on-chain!`);
   console.log(`  TX: ${sig}`);
 
-  // Trigger AI arbitration
+  // Trigger AI arbitration — sign authorization for arbitrator to decrypt
+  console.log(`Signing arbitration authorization...`);
+  const { ed25519 } = await import("@noble/curves/ed25519");
+  const authMessage = `Authorize arbitration for escrow ${escrowId} ts ${Date.now()}`;
+  const authMsgBytes = new TextEncoder().encode(authMessage);
+  const authSig = ed25519.sign(authMsgBytes, buyer.secretKey.slice(0, 32));
+  const authSigBase64 = Buffer.from(authSig).toString("base64");
+
   console.log(`Triggering Grok 4.1 arbitration...`);
   const arbRes = await fetch(`${BACKEND_URL}/api/jobs/${escrowId}/dispute`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({
+      reason,
+      wallet: buyer.publicKey.toBase58(),
+      signature: authSigBase64,
+      message: authMessage,
+    }),
   });
   const arbData: any = await arbRes.json();
 

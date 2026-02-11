@@ -287,7 +287,7 @@ const server = createServer(async (req, res) => {
           "GET /api/jobs": "List escrows (?wallet=ADDR&page=1&limit=50)",
           "GET /api/jobs/:id": "Escrow details",
           "POST /api/jobs": "Register job metadata (after on-chain create_escrow)",
-          "PUT /api/jobs/:id/dispute": "Trigger AI arbitration (after on-chain raise_dispute)",
+          "PUT /api/jobs/:id/dispute": "Trigger AI arbitration (requires buyer wallet signature: { wallet, signature, message, reason })",
           "POST /api/files": "Upload file (auto-encrypted if escrowId provided)",
           "GET /api/files": "List files (?escrowId= to filter)",
           "GET /api/files/:fileId": "File metadata (?raw=true for download)",
@@ -397,6 +397,30 @@ const server = createServer(async (req, res) => {
       if (!job) return json(res, { error: "Job not found" }, 404);
       
       const body = await parseBody(req);
+
+      // Require buyer's wallet signature to authorize arbitrator decryption
+      const { wallet, signature, message } = body;
+      if (!wallet || !signature || !message) {
+        return json(res, { error: "Dispute requires wallet signature: { wallet, signature, message, reason }" }, 400);
+      }
+      
+      // Verify ed25519 signature
+      try {
+        const { ed25519 } = await import("@noble/curves/ed25519");
+        const walletPubkey = new PublicKey(wallet);
+        const sigBytes = Buffer.from(signature, "base64");
+        const msgBytes = new TextEncoder().encode(message);
+        const valid = ed25519.verify(sigBytes, msgBytes, walletPubkey.toBytes());
+        if (!valid) return json(res, { error: "Invalid signature" }, 403);
+      } catch (err: any) {
+        return json(res, { error: `Signature verification failed: ${err.message}` }, 403);
+      }
+
+      // Verify wallet is the buyer of this escrow
+      if (job.buyer !== wallet) {
+        return json(res, { error: "Only the buyer can authorize dispute arbitration" }, 403);
+      }
+
       job.state = "disputed";
 
       // Trigger AI arbitration if API keys are available
