@@ -1,0 +1,11 @@
+Solana vs Ethereum: A Brief Technical Comparison
+
+Solana uses Proof of History (PoH) combined with Tower BFT consensus, achieving ~400ms block times and 65,000+ theoretical TPS. Ethereum uses Proof of Stake with 12-second slots, processing ~30 TPS on L1 (scaling via L2 rollups).
+
+Key differences:
+- Solana: monolithic, single shard, parallel execution (Sealevel)
+- Ethereum: modular, rollup-centric roadmap, sequential EVM execution
+- Solana fees: ~$0.00025 per TX
+- Ethereum L1 fees: $1-50+ per TX (L2: $0.01-0.10)
+
+Both have trade-offs. Solana optimizes for speed/cost, Ethereum for decentralization/security.

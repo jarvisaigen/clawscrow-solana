@@ -412,8 +412,8 @@ const App = (() => {
           filesEl.innerHTML = files.length > 0
             ? '<h4 style="margin:0.5rem 0">📁 Deliverables</h4>' + files.map(f =>
                 `<div class="file-item"><span>📄 ${f.filename || f.id}</span>
-                 ${f.encrypted ? `<a href="${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer" target="_blank" class="btn btn-sm btn-accent">🔓 Decrypt</a>` : ''}
-                 <a href="${CONFIG.API_URL}/api/files/${f.id}?raw=true" target="_blank" class="btn btn-sm btn-outline">⬇ Download</a></div>`
+                 ${f.encrypted ? `<button onclick="App.downloadBlob('${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer', '${(f.filename || f.id).replace(/'/g, "\\'")}', '${f.contentType || 'application/octet-stream'}')" class="btn btn-sm btn-accent">🔓 Decrypt</button>` : ''}
+                 <button onclick="App.downloadBlob('${CONFIG.API_URL}/api/files/${f.id}?raw=true', '${(f.filename || f.id).replace(/'/g, "\\'")}', '${f.contentType || 'application/octet-stream'}')" class="btn btn-sm btn-outline">⬇ Download</button></div>`
               ).join('')
             : '<p style="color:var(--text-muted);font-size:0.85rem">No files uploaded yet</p>';
         }
@@ -443,6 +443,28 @@ const App = (() => {
     actions.innerHTML += `<a href="https://solscan.io/account/${escrowPda.toBase58()}?cluster=devnet" target="_blank" class="btn btn-outline" style="margin-left:auto">🔗 Solscan</a>`;
 
     modal.classList.add('active');
+  }
+
+  async function downloadBlob(url, filename, contentType) {
+    try {
+      const btn = event?.target;
+      if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(new Blob([blob], { type: contentType }));
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+      if (btn) { btn.disabled = false; btn.textContent = btn.classList.contains('btn-accent') ? '🔓 Decrypt' : '⬇ Download'; }
+    } catch (e) {
+      alert('Download failed: ' + e.message);
+      if (event?.target) { event.target.disabled = false; }
+    }
   }
 
   function closeModal() {
@@ -861,7 +883,7 @@ const App = (() => {
 
   return {
     connectWallet, showCreateForm, acceptJob, deliverJob, submitDelivery,
-    approveJob, disputeJob, filterEscrows, openJob, closeModal,
+    approveJob, disputeJob, filterEscrows, openJob, closeModal, downloadBlob,
     copyCode, submitCreate, searchEscrows, escrowPage, filterMyEscrows, requestFaucet,
   };
 })();
