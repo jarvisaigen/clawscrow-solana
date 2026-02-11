@@ -13,7 +13,8 @@
     "@solana/web3.js": "^1.87.6",
     "eciesjs": "^0.4.8",
     "elliptic": "^6.6.1",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@types/chai": "^4.3.11",

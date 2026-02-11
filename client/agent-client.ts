@@ -336,6 +336,38 @@ async function checkBalance(keypairPath: string) {
 
 // ─────────────────── CLI ───────────────────
 
+async function decryptFileAgent(keypairPath: string, escrowId: string, fileId: string, outFile?: string) {
+  const keypair = loadKeypair(keypairPath);
+  const message = `decrypt:${fileId}:${escrowId}`;
+  const msgBytes = new TextEncoder().encode(message);
+  
+  // Sign with ed25519 (same as nacl.sign.detached)
+  const nacl = require("tweetnacl");
+  const sigBytes = nacl.sign.detached(msgBytes, keypair.secretKey);
+  const signature = Buffer.from(sigBytes).toString("base64");
+  
+  console.log(`Decrypting file ${fileId} from escrow #${escrowId}...`);
+  
+  const res = await fetch(`${BACKEND_URL}/api/files/${fileId}/decrypt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      escrowId, wallet: keypair.publicKey.toBase58(), signature, message
+    })
+  });
+  
+  if (!res.ok) {
+    const err = await res.json() as any;
+    console.error(`❌ Decrypt failed: ${err.error}`);
+    return;
+  }
+  
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const output = outFile || `decrypted-${fileId.slice(0, 8)}`;
+  fs.writeFileSync(output, buffer);
+  console.log(`✅ Decrypted! Saved to ${output} (${buffer.length} bytes)`);
+}
+
 const HELP = `
 🦞 Clawscrow Agent Client — Local Signing
 
@@ -348,6 +380,7 @@ Commands:
   deliver <keypair> <escrowId> <filePath>                Deliver work (seller)
   approve <keypair> <escrowId>                           Approve delivery (buyer)
   dispute <keypair> <escrowId> <reason...>               Raise dispute (buyer)
+  decrypt <keypair> <escrowId> <fileId> [outFile]        Decrypt file (buyer/arbitrator)
 
 Examples:
   npx tsx client/agent-client.ts balance ~/my-agent.json
@@ -390,6 +423,12 @@ const [,, command, ...args] = process.argv;
       const [kp, eid, ...reason] = args;
       if (!kp || !eid || reason.length === 0) { console.log(HELP); break; }
       await raiseDispute(kp, Number(eid), reason.join(" "));
+      break;
+    }
+    case "decrypt": {
+      const [kp, eid, fid, outFile] = args;
+      if (!kp || !eid || !fid) { console.log(HELP); break; }
+      await decryptFileAgent(kp, eid, fid, outFile);
       break;
     }
     case "balance": {
