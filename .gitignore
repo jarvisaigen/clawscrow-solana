@@ -13,3 +13,6 @@ target/deploy/clawscrow-keypair.json
 Cargo.lock
 data/
 jarvis-test-keypair.json
+essay.txt
+test-delivery.txt
+blockchain_poem.pdf
