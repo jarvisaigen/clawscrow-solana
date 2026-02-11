@@ -412,8 +412,8 @@ const App = (() => {
           filesEl.innerHTML = files.length > 0
             ? '<h4 style="margin:0.5rem 0">📁 Deliverables</h4>' + files.map(f =>
                 `<div class="file-item"><span>📄 ${f.filename || f.id}</span>
-                 ${f.encrypted ? `<button onclick="App.downloadBlob('${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer', '${(f.filename || f.id).replace(/'/g, "\\'")}', '${f.contentType || 'application/octet-stream'}')" class="btn btn-sm btn-accent">🔓 Decrypt</button>` : ''}
-                 <button onclick="App.downloadBlob('${CONFIG.API_URL}/api/files/${f.id}?raw=true', '${(f.filename || f.id).replace(/'/g, "\\'")}', '${f.contentType || 'application/octet-stream'}')" class="btn btn-sm btn-outline">⬇ Download</button></div>`
+                 ${f.encrypted ? `<a href="${CONFIG.API_URL}/api/files/${f.id}/decrypt?escrowId=${job.escrowId}&role=buyer" class="btn btn-sm btn-accent" download="${(f.filename || f.id).replace(/\.arb$/, '')}">🔓 Decrypt</a>` : ''}
+                 <a href="${CONFIG.API_URL}/api/files/${f.id}?raw=true" class="btn btn-sm btn-outline" download="${f.filename || f.id}">⬇ Download</a></div>`
               ).join('')
             : '<p style="color:var(--text-muted);font-size:0.85rem">No files uploaded yet</p>';
         }
