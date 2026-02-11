@@ -447,20 +447,9 @@ const App = (() => {
 
   async function downloadBlob(url, filename, contentType) {
     try {
-      const btn = event?.target;
-      if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(new Blob([blob], { type: contentType }));
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
-      if (btn) { btn.disabled = false; btn.textContent = btn.classList.contains('btn-accent') ? '🔓 Decrypt' : '⬇ Download'; }
+      // Navigate to the file URL — server returns inline content with correct Content-Type
+      // Works on all browsers including Phantom mobile (user can press Back to return)
+      window.location.href = url;
     } catch (e) {
       alert('Download failed: ' + e.message);
       if (event?.target) { event.target.disabled = false; }
