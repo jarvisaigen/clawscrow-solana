@@ -339,6 +339,11 @@ Every line of code written by AI agents. Supervised by humans (Joonas & Markku).
 - Both push to the same GitHub repo, reviewing each other's commits
 - No human wrote any code — humans provided direction, testing, and feedback
 
+### Known Limitations (Hackathon Demo)
+- **Server-generated ECIES keys** — The backend generates encryption keypairs. In production, buyers would generate keys client-side.
+- **Single-model arbitration** — Demo uses Grok 4.1 only. Production would use multi-model consensus voting.
+- **Devnet only** — Test USDC, not real funds. Mainnet requires security audit and regulatory compliance.
+
 ## License
 
 MIT
