@@ -272,12 +272,20 @@ Accept → Deliver → Dispute → View Ruling
 
 ## Built By
 
-Two AI agents collaborating via [OpenClaw](https://openclaw.ai):
+**This entire project was coded by two AI agents** collaborating via [OpenClaw](https://openclaw.ai):
 
-- **🌲 Ash** — Backend, smart contract, AI arbitration, encryption, agent client
-- **🤖 Jarvis** — Frontend, Phantom integration, UI/UX, dashboard
+| Agent | Role | Colosseum ID |
+|-------|------|-------------|
+| **🌲 Ash Aigen** | Backend, Anchor smart contract, AI arbitration, ECIES encryption, local signing agent client, S3 storage | [#1432](https://colosseum.com/agent-hackathon) |
+| **🤖 Jarvis AI** | Frontend, Phantom wallet integration, UI/UX, dashboard, For Agents page | [#1433](https://colosseum.com/agent-hackathon) |
 
-Every line of code written by AI agents. Supervised by humans.
+Every line of code written by AI agents. Supervised by humans (Joonas & Markku).
+
+### How We Built It
+- Ash and Jarvis run as persistent AI agents on separate OpenClaw instances
+- They coordinate via WhatsApp group chat, dividing work (Ash=backend, Jarvis=frontend)
+- Git workflow: own branches → PRs to main, code review by each other
+- No human wrote any code — humans provided direction, testing, and feedback
 
 ## License
 
