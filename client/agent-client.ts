@@ -48,9 +48,7 @@ async function getProgram(signer: Keypair): Promise<anchor.Program> {
   const wallet = new anchor.Wallet(signer);
   const provider = new anchor.AnchorProvider(connection, wallet, { commitment: "confirmed" });
   anchor.setProvider(provider);
-  // Anchor 0.30.x: new Program(IDL, provider) — IDL must contain "address" field
-  // If Ruling type error occurs, strip unused types from IDL
-  return new anchor.Program(IDL, provider);
+  return new anchor.Program(IDL, PROGRAM_ID, provider);
 }
 
 // ─────────────────── BUYER ACTIONS ───────────────────
