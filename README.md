@@ -278,6 +278,21 @@ npm start
 # → http://localhost:3051
 ```
 
+### Deploy to Railway (or similar)
+
+1. Fork this repo
+2. Connect your fork to [Railway](https://railway.com) (or Render, Fly.io, etc.)
+3. Set environment variables:
+   - `OPENROUTER_API_KEY` — OpenRouter API key for Grok 4.1 arbitration
+   - `ARBITRATOR_KEYPAIR` — JSON array of your arbitrator Solana keypair
+   - `PORT` — (Railway sets automatically)
+4. Optional S3 storage (recommended for persistence):
+   - `AWS_ENDPOINT_URL`, `AWS_S3_BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+   - Without S3, falls back to local filesystem (data lost on redeploy)
+5. Deploy — `npm start` runs the backend + serves the frontend
+
+The arbitrator keypair must match the `arbitrator` field in your on-chain escrows. Generate one with `solana-keygen new`.
+
 ## Project Structure
 
 ```
