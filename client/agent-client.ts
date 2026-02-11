@@ -3,10 +3,17 @@
  * 
  * Each agent signs transactions with their own keypair directly against Solana.
  * The backend is only used for file storage and AI arbitration.
+ * 
+ * Uses raw Solana instructions (no Anchor IDL dependency).
  */
-import * as anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
-import { getAssociatedTokenAddress, getOrCreateAssociatedTokenAccount, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  Connection, Keypair, PublicKey, SystemProgram,
+  TransactionInstruction, Transaction, sendAndConfirmTransaction,
+} from "@solana/web3.js";
+import {
+  getAssociatedTokenAddress, getOrCreateAssociatedTokenAccount,
+  TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
@@ -16,139 +23,146 @@ const PROGRAM_ID = new PublicKey("7KGm2AoZh2HtqqLx15BXEkt8fS1y9uAS8vXRRTw9Nud7")
 const USDC_MINT = new PublicKey("CMfut37JaZLSXrZFbExqLUfoSq7AV95TZyLtXLyVHzyh");
 const ARBITRATOR = new PublicKey("DF26XZhyKWH4MeSQ1yfEQxBB22vg2EYWS2BfkX1fCUZb");
 const BACKEND_URL = process.env.BACKEND_URL || "https://clawscrow-solana-production.up.railway.app";
+const SYSVAR_RENT = new PublicKey("SysvarRent111111111111111111111111111111111");
 
-// Load IDL
-const IDL = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/clawscrow.json"), "utf-8"));
+// ─────────────────── HELPERS ───────────────────
 
 function loadKeypair(keypairPath: string): Keypair {
   const raw = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
   return Keypair.fromSecretKey(Uint8Array.from(raw));
 }
 
-function getEscrowPDA(escrowId: number): [PublicKey, number] {
+function anchorDisc(name: string): Buffer {
+  const hash = createHash("sha256").update(`global:${name}`).digest();
+  return hash.slice(0, 8);
+}
+
+function encodeU64(n: number | bigint): Buffer {
   const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(BigInt(escrowId));
+  buf.writeBigUInt64LE(BigInt(n));
+  return buf;
+}
+
+function encodeBorshString(s: string): Buffer {
+  const strBuf = Buffer.from(s, "utf-8");
+  const lenBuf = Buffer.alloc(4);
+  lenBuf.writeUInt32LE(strBuf.length);
+  return Buffer.concat([lenBuf, strBuf]);
+}
+
+function getEscrowPDA(escrowId: number): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("escrow"), buf],
+    [Buffer.from("escrow"), encodeU64(escrowId)],
     PROGRAM_ID
   );
 }
 
 function getVaultPDA(escrowId: number): [PublicKey, number] {
-  const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(BigInt(escrowId));
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), buf],
+    [Buffer.from("vault"), encodeU64(escrowId)],
     PROGRAM_ID
   );
 }
 
-async function getProgram(signer: Keypair): Promise<anchor.Program> {
-  const connection = new Connection(DEVNET_URL, "confirmed");
-  const wallet = new anchor.Wallet(signer);
-  const provider = new anchor.AnchorProvider(connection, wallet, { commitment: "confirmed" });
-  anchor.setProvider(provider);
-  return new anchor.Program(IDL, PROGRAM_ID, provider);
-}
-
 // ─────────────────── BUYER ACTIONS ───────────────────
 
-export async function createEscrow(
-  buyerKeypairPath: string,
+async function createEscrow(
+  keypairPath: string,
   description: string,
   paymentUsdc: number,
-  buyerCollateralUsdc: number,
-  sellerCollateralUsdc: number,
-): Promise<{ escrowId: number; txSignature: string }> {
-  const buyer = loadKeypair(buyerKeypairPath);
-  const program = await getProgram(buyer);
-  const connection = program.provider.connection;
-
+  buyerCollUsdc: number,
+  sellerCollUsdc: number,
+) {
+  const buyer = loadKeypair(keypairPath);
+  const connection = new Connection(DEVNET_URL, "confirmed");
   const escrowId = Date.now();
+  const deadline = Math.floor(Date.now() / 1000) + 7 * 86400;
+
   const [escrowPda] = getEscrowPDA(escrowId);
   const [vaultPda] = getVaultPDA(escrowId);
+  const buyerToken = await getOrCreateAssociatedTokenAccount(connection, buyer, USDC_MINT, buyer.publicKey);
 
-  const buyerToken = await getAssociatedTokenAddress(USDC_MINT, buyer.publicKey);
-  const deadlineTs = Math.floor(Date.now() / 1000) + 7 * 24 * 3600; // 7 days
+  const data = Buffer.concat([
+    anchorDisc("create_escrow"),
+    encodeU64(escrowId),
+    encodeBorshString(description),
+    encodeU64(Math.round(paymentUsdc * 1e6)),
+    encodeU64(Math.round(buyerCollUsdc * 1e6)),
+    encodeU64(Math.round(sellerCollUsdc * 1e6)),
+    encodeU64(deadline),
+  ]);
 
-  // Convert USDC amounts to 6-decimal raw
-  const payment = Math.round(paymentUsdc * 1_000_000);
-  const buyerColl = Math.round(buyerCollateralUsdc * 1_000_000);
-  const sellerColl = Math.round(sellerCollateralUsdc * 1_000_000);
+  const keys = [
+    { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: escrowPda, isSigner: false, isWritable: true },
+    { pubkey: vaultPda, isSigner: false, isWritable: true },
+    { pubkey: buyerToken.address, isSigner: false, isWritable: true },
+    { pubkey: USDC_MINT, isSigner: false, isWritable: false },
+    { pubkey: ARBITRATOR, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_RENT, isSigner: false, isWritable: false },
+  ];
 
-  const tx = await (program.methods as any)
-    .createEscrow(
-      new anchor.BN(escrowId),
-      description,
-      new anchor.BN(payment),
-      new anchor.BN(buyerColl),
-      new anchor.BN(sellerColl),
-      new anchor.BN(deadlineTs),
-    )
-    .accounts({
-      buyer: buyer.publicKey,
-      escrow: escrowPda,
-      vault: vaultPda,
-      buyerToken,
-      usdcMint: USDC_MINT,
-      arbitrator: ARBITRATOR,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-      rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-    })
-    .signers([buyer])
-    .rpc();
+  const ix = new TransactionInstruction({ keys, programId: PROGRAM_ID, data });
+  const tx = new Transaction().add(ix);
 
-  console.log(`✅ Escrow created: ${escrowId}`);
-  console.log(`   PDA: ${escrowPda.toBase58()}`);
-  console.log(`   TX: ${tx}`);
-  console.log(`   Buyer: ${buyer.publicKey.toBase58()}`);
+  console.log(`Creating escrow #${escrowId}...`);
+  console.log(`  Description: ${description}`);
+  console.log(`  Payment: ${paymentUsdc} USDC | Buyer collateral: ${buyerCollUsdc} USDC | Seller collateral: ${sellerCollUsdc} USDC`);
 
-  // Register with backend for tracking
-  await fetch(`${BACKEND_URL}/api/jobs`, {
+  const sig = await sendAndConfirmTransaction(connection, tx, [buyer]);
+  console.log(`✅ Escrow created!`);
+  console.log(`  Escrow ID: ${escrowId}`);
+  console.log(`  Buyer: ${buyer.publicKey.toBase58()}`);
+  console.log(`  TX: ${sig}`);
+
+  // Register with backend
+  const res = await fetch(`${BACKEND_URL}/api/jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      escrowId: escrowId.toString(),
-      description,
+      escrowId,
       buyer: buyer.publicKey.toBase58(),
-      paymentAmount: paymentUsdc,
-      buyerCollateral: buyerCollateralUsdc,
-      sellerCollateral: sellerCollateralUsdc,
+      description,
+      payment: Math.round(paymentUsdc * 1e6),
+      buyerCollateral: Math.round(buyerCollUsdc * 1e6),
+      sellerCollateral: Math.round(sellerCollUsdc * 1e6),
     }),
   });
-
-  return { escrowId, txSignature: tx };
+  console.log(`  Backend registered: ${res.status}`);
 }
 
 // ─────────────────── SELLER ACTIONS ───────────────────
 
-export async function acceptEscrow(
-  sellerKeypairPath: string,
-  escrowId: number,
-): Promise<string> {
-  const seller = loadKeypair(sellerKeypairPath);
-  const program = await getProgram(seller);
+async function acceptEscrow(keypairPath: string, escrowId: number) {
+  const seller = loadKeypair(keypairPath);
+  const connection = new Connection(DEVNET_URL, "confirmed");
 
   const [escrowPda] = getEscrowPDA(escrowId);
   const [vaultPda] = getVaultPDA(escrowId);
-  const sellerToken = await getAssociatedTokenAddress(USDC_MINT, seller.publicKey);
+  const sellerToken = await getOrCreateAssociatedTokenAccount(connection, seller, USDC_MINT, seller.publicKey);
 
-  const tx = await (program.methods as any)
-    .acceptEscrow(new anchor.BN(escrowId))
-    .accounts({
-      seller: seller.publicKey,
-      escrow: escrowPda,
-      vault: vaultPda,
-      sellerToken,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .signers([seller])
-    .rpc();
+  const data = Buffer.concat([
+    anchorDisc("accept_escrow"),
+    encodeU64(escrowId),
+  ]);
 
-  console.log(`✅ Escrow ${escrowId} accepted by ${seller.publicKey.toBase58()}`);
-  console.log(`   TX: ${tx}`);
+  const keys = [
+    { pubkey: seller.publicKey, isSigner: true, isWritable: true },
+    { pubkey: escrowPda, isSigner: false, isWritable: true },
+    { pubkey: vaultPda, isSigner: false, isWritable: true },
+    { pubkey: sellerToken.address, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ];
+
+  const ix = new TransactionInstruction({ keys, programId: PROGRAM_ID, data });
+  const tx = new Transaction().add(ix);
+
+  console.log(`Accepting escrow #${escrowId}...`);
+  const sig = await sendAndConfirmTransaction(connection, tx, [seller]);
+  console.log(`✅ Accepted! Seller: ${seller.publicKey.toBase58()}`);
+  console.log(`  TX: ${sig}`);
 
   // Notify backend
   await fetch(`${BACKEND_URL}/api/jobs/${escrowId}/accept`, {
@@ -156,24 +170,18 @@ export async function acceptEscrow(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ seller: seller.publicKey.toBase58() }),
   });
-
-  return tx;
 }
 
-export async function deliver(
-  sellerKeypairPath: string,
-  escrowId: number,
-  filePath: string,
-): Promise<{ txSignature: string; contentHash: string; fileId: string }> {
-  const seller = loadKeypair(sellerKeypairPath);
-  const program = await getProgram(seller);
+async function deliver(keypairPath: string, escrowId: number, filePath: string) {
+  const seller = loadKeypair(keypairPath);
+  const connection = new Connection(DEVNET_URL, "confirmed");
 
   // Read and hash the file
   const content = fs.readFileSync(filePath);
   const contentHash = createHash("sha256").update(content).digest();
   const contentHashHex = contentHash.toString("hex");
 
-  // Upload file to backend (encrypted)
+  // Upload file to backend (auto-encrypted with ECIES)
   const base64Content = content.toString("base64");
   const uploadRes = await fetch(`${BACKEND_URL}/api/files`, {
     method: "POST",
@@ -189,21 +197,28 @@ export async function deliver(
 
   // Submit delivery hash on-chain
   const [escrowPda] = getEscrowPDA(escrowId);
-  const hashArray = Array.from(contentHash);
 
-  const tx = await (program.methods as any)
-    .deliver(hashArray)
-    .accounts({
-      seller: seller.publicKey,
-      escrow: escrowPda,
-    })
-    .signers([seller])
-    .rpc();
+  // deliver instruction: disc + content_hash (32 bytes as [u8; 32])
+  const data = Buffer.concat([
+    anchorDisc("deliver"),
+    contentHash,
+  ]);
 
-  console.log(`✅ Delivery submitted for escrow ${escrowId}`);
-  console.log(`   Content hash: ${contentHashHex}`);
-  console.log(`   File ID: ${uploadData.fileId}`);
-  console.log(`   TX: ${tx}`);
+  const keys = [
+    { pubkey: seller.publicKey, isSigner: true, isWritable: true },
+    { pubkey: escrowPda, isSigner: false, isWritable: true },
+  ];
+
+  const ix = new TransactionInstruction({ keys, programId: PROGRAM_ID, data });
+  const tx = new Transaction().add(ix);
+
+  console.log(`Delivering to escrow #${escrowId}...`);
+  const sig = await sendAndConfirmTransaction(connection, tx, [seller]);
+  console.log(`✅ Delivered!`);
+  console.log(`  Content hash: ${contentHashHex}`);
+  console.log(`  File ID: ${uploadData.fileId}`);
+  console.log(`  Encrypted: ${uploadData.encrypted ?? true}`);
+  console.log(`  TX: ${sig}`);
 
   // Notify backend
   await fetch(`${BACKEND_URL}/api/jobs/${escrowId}/deliver`, {
@@ -215,71 +230,76 @@ export async function deliver(
       fileId: uploadData.fileId,
     }),
   });
-
-  return { txSignature: tx, contentHash: contentHashHex, fileId: uploadData.fileId };
 }
 
 // ─────────────────── BUYER POST-DELIVERY ───────────────────
 
-export async function approve(
-  buyerKeypairPath: string,
-  escrowId: number,
-): Promise<string> {
-  const buyer = loadKeypair(buyerKeypairPath);
-  const program = await getProgram(buyer);
-  const connection = program.provider.connection;
+async function approve(keypairPath: string, escrowId: number) {
+  const buyer = loadKeypair(keypairPath);
+  const connection = new Connection(DEVNET_URL, "confirmed");
 
   const [escrowPda] = getEscrowPDA(escrowId);
   const [vaultPda] = getVaultPDA(escrowId);
 
-  // Need to fetch escrow to get seller
-  const escrowAccount: any = await (program.account as any).escrow.fetch(escrowPda);
-  const sellerPub = escrowAccount.seller as PublicKey;
+  // Get seller from backend
+  const res = await fetch(`${BACKEND_URL}/api/jobs/${escrowId}`);
+  const jobData: any = await res.json();
+  const job = jobData.job || jobData;
+  const seller = new PublicKey(job.seller);
 
-  const buyerToken = await getOrCreateAssociatedTokenAccount(connection, buyer, USDC_MINT, buyer.publicKey);
-  const sellerToken = await getOrCreateAssociatedTokenAccount(connection, buyer, USDC_MINT, sellerPub);
+  const buyerToken = await getAssociatedTokenAddress(USDC_MINT, buyer.publicKey);
+  const sellerToken = await getAssociatedTokenAddress(USDC_MINT, seller);
 
-  const tx = await (program.methods as any)
-    .approve()
-    .accounts({
-      buyer: buyer.publicKey,
-      escrow: escrowPda,
-      vault: vaultPda,
-      buyerToken: buyerToken.address,
-      sellerToken: sellerToken.address,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .signers([buyer])
-    .rpc();
+  const data = Buffer.concat([
+    anchorDisc("approve"),
+    encodeU64(escrowId),
+  ]);
 
-  console.log(`✅ Escrow ${escrowId} approved — seller paid`);
-  console.log(`   TX: ${tx}`);
-  return tx;
+  const keys = [
+    { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: escrowPda, isSigner: false, isWritable: true },
+    { pubkey: vaultPda, isSigner: false, isWritable: true },
+    { pubkey: buyerToken, isSigner: false, isWritable: true },
+    { pubkey: sellerToken, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ];
+
+  const ix = new TransactionInstruction({ keys, programId: PROGRAM_ID, data });
+  const tx = new Transaction().add(ix);
+
+  console.log(`Approving escrow #${escrowId}...`);
+  const sig = await sendAndConfirmTransaction(connection, tx, [buyer]);
+  console.log(`✅ Approved! Seller paid.`);
+  console.log(`  TX: ${sig}`);
 }
 
-export async function raiseDispute(
-  buyerKeypairPath: string,
-  escrowId: number,
-  reason: string,
-): Promise<string> {
-  const buyer = loadKeypair(buyerKeypairPath);
-  const program = await getProgram(buyer);
+async function raiseDispute(keypairPath: string, escrowId: number, reason: string) {
+  const buyer = loadKeypair(keypairPath);
+  const connection = new Connection(DEVNET_URL, "confirmed");
 
   const [escrowPda] = getEscrowPDA(escrowId);
 
-  const tx = await (program.methods as any)
-    .raiseDispute()
-    .accounts({
-      buyer: buyer.publicKey,
-      escrow: escrowPda,
-    })
-    .signers([buyer])
-    .rpc();
+  const data = Buffer.concat([
+    anchorDisc("raise_dispute"),
+    encodeU64(escrowId),
+  ]);
 
-  console.log(`✅ Dispute raised for escrow ${escrowId}`);
-  console.log(`   TX: ${tx}`);
+  const keys = [
+    { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: escrowPda, isSigner: false, isWritable: true },
+  ];
 
-  // Trigger AI arbitration on backend
+  const ix = new TransactionInstruction({ keys, programId: PROGRAM_ID, data });
+  const tx = new Transaction().add(ix);
+
+  console.log(`Raising dispute on escrow #${escrowId}...`);
+  console.log(`  Reason: ${reason}`);
+  const sig = await sendAndConfirmTransaction(connection, tx, [buyer]);
+  console.log(`✅ Dispute raised on-chain!`);
+  console.log(`  TX: ${sig}`);
+
+  // Trigger AI arbitration
+  console.log(`Triggering Grok 4.1 arbitration...`);
   const arbRes = await fetch(`${BACKEND_URL}/api/jobs/${escrowId}/dispute`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -288,82 +308,97 @@ export async function raiseDispute(
   const arbData: any = await arbRes.json();
 
   if (arbData.arbitration) {
-    console.log(`   🤖 Grok ruling: ${arbData.arbitration.finalRuling}`);
-    console.log(`   Confidence: ${arbData.arbitration.votes?.[0]?.confidence}`);
-    console.log(`   On-chain TX: ${arbData.onChainTx}`);
+    console.log(`⚖️ Ruling: ${arbData.arbitration.finalRuling}`);
+    console.log(`  Confidence: ${arbData.arbitration.votes?.[0]?.confidence}`);
+    console.log(`  Reasoning: ${arbData.arbitration.votes?.[0]?.reasoning}`);
+    if (arbData.onChainTx) console.log(`  Settlement TX: ${arbData.onChainTx}`);
+  } else {
+    console.log(`  Response: ${JSON.stringify(arbData).slice(0, 500)}`);
   }
+}
 
-  return tx;
+async function checkBalance(keypairPath: string) {
+  const kp = loadKeypair(keypairPath);
+  const conn = new Connection(DEVNET_URL, "confirmed");
+  const sol = await conn.getBalance(kp.publicKey);
+  const ata = await getAssociatedTokenAddress(USDC_MINT, kp.publicKey);
+  try {
+    const bal = await conn.getTokenAccountBalance(ata);
+    console.log(`Wallet: ${kp.publicKey.toBase58()}`);
+    console.log(`SOL: ${sol / 1e9}`);
+    console.log(`USDC: ${bal.value.uiAmount}`);
+  } catch {
+    console.log(`Wallet: ${kp.publicKey.toBase58()}`);
+    console.log(`SOL: ${sol / 1e9}`);
+    console.log(`USDC: 0 (no token account)`);
+  }
 }
 
 // ─────────────────── CLI ───────────────────
+
+const HELP = `
+🦞 Clawscrow Agent Client — Local Signing
+
+Usage: npx tsx client/agent-client.ts <command> [args]
+
+Commands:
+  balance <keypair>                                      Check wallet balance
+  create  <keypair> <description> <pay> <bcoll> <scoll>  Create escrow (buyer)
+  accept  <keypair> <escrowId>                           Accept escrow (seller)
+  deliver <keypair> <escrowId> <filePath>                Deliver work (seller)
+  approve <keypair> <escrowId>                           Approve delivery (buyer)
+  dispute <keypair> <escrowId> <reason...>               Raise dispute (buyer)
+
+Examples:
+  npx tsx client/agent-client.ts balance ~/my-agent.json
+  npx tsx client/agent-client.ts create ~/buyer.json "Write a haiku about Solana" 5 1 1
+  npx tsx client/agent-client.ts accept ~/seller.json 1770756009757
+  npx tsx client/agent-client.ts deliver ~/seller.json 1770756009757 ./haiku.txt
+  npx tsx client/agent-client.ts approve ~/buyer.json 1770756009757
+  npx tsx client/agent-client.ts dispute ~/buyer.json 1770756009757 "Work does not match description"
+`;
 
 const [,, command, ...args] = process.argv;
 
 (async () => {
   switch (command) {
     case "create": {
-      const [keypairPath, description, payment, buyerColl, sellerColl] = args;
-      await createEscrow(keypairPath, description, Number(payment), Number(buyerColl), Number(sellerColl));
+      const [kp, desc, pay, bc, sc] = args;
+      if (!kp || !desc || !pay) { console.log(HELP); break; }
+      await createEscrow(kp, desc, Number(pay), Number(bc || 1), Number(sc || 1));
       break;
     }
     case "accept": {
-      const [keypairPath, escrowId] = args;
-      await acceptEscrow(keypairPath, Number(escrowId));
+      const [kp, eid] = args;
+      if (!kp || !eid) { console.log(HELP); break; }
+      await acceptEscrow(kp, Number(eid));
       break;
     }
     case "deliver": {
-      const [keypairPath, escrowId, filePath] = args;
-      await deliver(keypairPath, Number(escrowId), filePath);
+      const [kp, eid, fp] = args;
+      if (!kp || !eid || !fp) { console.log(HELP); break; }
+      await deliver(kp, Number(eid), fp);
       break;
     }
     case "approve": {
-      const [keypairPath, escrowId] = args;
-      await approve(keypairPath, Number(escrowId));
+      const [kp, eid] = args;
+      if (!kp || !eid) { console.log(HELP); break; }
+      await approve(kp, Number(eid));
       break;
     }
     case "dispute": {
-      const [keypairPath, escrowId, ...reasonParts] = args;
-      await raiseDispute(keypairPath, Number(escrowId), reasonParts.join(" "));
+      const [kp, eid, ...reason] = args;
+      if (!kp || !eid || reason.length === 0) { console.log(HELP); break; }
+      await raiseDispute(kp, Number(eid), reason.join(" "));
       break;
     }
     case "balance": {
-      const keypairPath = args[0];
-      const kp = loadKeypair(keypairPath);
-      const conn = new Connection(DEVNET_URL, "confirmed");
-      const sol = await conn.getBalance(kp.publicKey);
-      const ata = await getAssociatedTokenAddress(USDC_MINT, kp.publicKey);
-      try {
-        const bal = await conn.getTokenAccountBalance(ata);
-        console.log(`Wallet: ${kp.publicKey.toBase58()}`);
-        console.log(`SOL: ${sol / 1e9}`);
-        console.log(`USDC: ${bal.value.uiAmount}`);
-      } catch {
-        console.log(`Wallet: ${kp.publicKey.toBase58()}`);
-        console.log(`SOL: ${sol / 1e9}`);
-        console.log(`USDC: 0`);
-      }
+      const [kp] = args;
+      if (!kp) { console.log(HELP); break; }
+      await checkBalance(kp);
       break;
     }
     default:
-      console.log(`
-🦞 Clawscrow Agent Client — Local Signing
-
-Usage: npx tsx client/agent-client.ts <command> [args]
-
-Commands:
-  balance <keypair>                                    Check wallet balance
-  create  <keypair> <description> <pay> <bcoll> <scoll>  Create escrow (buyer)
-  accept  <keypair> <escrowId>                          Accept escrow (seller)
-  deliver <keypair> <escrowId> <filePath>               Deliver work (seller)
-  approve <keypair> <escrowId>                          Approve delivery (buyer)
-  dispute <keypair> <escrowId> <reason...>              Raise dispute (buyer)
-
-Examples:
-  npx tsx client/agent-client.ts balance ~/.config/solana/ash-agent.json
-  npx tsx client/agent-client.ts create ~/jarvis-keypair.json "Write a haiku" 5 1 1
-  npx tsx client/agent-client.ts accept ~/.config/solana/ash-agent.json 1770756009757
-  npx tsx client/agent-client.ts deliver ~/.config/solana/ash-agent.json 1770756009757 ./haiku.txt
-      `);
+      console.log(HELP);
   }
 })().catch(console.error);
