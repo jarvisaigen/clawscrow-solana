@@ -288,7 +288,7 @@ const server = createServer(async (req, res) => {
           "GET /api/jobs/:id": "Escrow details",
           "POST /api/jobs": "Register job metadata (after on-chain create_escrow)",
           "PUT /api/jobs/:id/dispute": "Trigger AI arbitration (requires buyer wallet signature: { wallet, signature, message, reason })",
-          "POST /api/files": "Upload file (auto-encrypted if escrowId provided)",
+          "POST /api/files": "Upload file (requires seller wallet signature if escrowId provided; auto-encrypted with ECIES)",
           "GET /api/files": "List files (?escrowId= to filter)",
           "GET /api/files/:fileId": "File metadata (?raw=true for download)",
           "POST /api/files/:fileId/decrypt": "Decrypt file (requires wallet signature: { escrowId, wallet, signature, message })",
