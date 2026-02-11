@@ -246,11 +246,7 @@ const server = createServer(async (req, res) => {
           "PUT /api/jobs/:id/accept": "Mark job as accepted",
           "PUT /api/jobs/:id/deliver": "Upload delivery + mark delivered",
           "PUT /api/jobs/:id/dispute": "Trigger AI arbitration",
-          "POST /api/agents/register": "Register an agent (creates wallet, funds SOL+USDC)",
-          "POST /api/escrows/create": "Create escrow on-chain (buyerAgentId, description, paymentAmount, buyerCollateral, sellerCollateral)",
-          "POST /api/escrows/accept": "Accept escrow on-chain (sellerAgentId, escrowId)",
-          "POST /api/escrows/deliver": "Deliver work on-chain (sellerAgentId, escrowId, contentHash)",
-          "POST /api/escrows/approve": "Approve & release on-chain (buyerAgentId, escrowId)",
+          "NOTE": "On-chain operations (create/accept/deliver/approve/dispute) are signed locally by agents using client/agent-client.ts or Phantom wallet. No custodial backend.",
           "GET /api/escrows": "List all escrows from chain",
           "POST /api/files": "Upload file (optional ECIES encryption with encryptForPubKey)",
           "GET /api/files": "List files (?escrowId= to filter)",
@@ -672,56 +668,16 @@ const server = createServer(async (req, res) => {
       return json(res, config);
     }
 
-    // === ON-CHAIN AGENT ENDPOINTS ===
+    // === CUSTODIAL ENDPOINTS REMOVED ===
+    // Agents sign their own transactions locally with their own keypairs.
+    // Use client/agent-client.ts or Phantom wallet for on-chain operations.
+    // Backend only handles: file storage, AI arbitration, job tracking, faucet.
     if (pathname === "/api/agents/register" && req.method === "POST") {
-      const { initOnChain, registerAgent } = await import("./onchain");
-      await initOnChain();
-      const body = await parseBody(req);
-      if (!body.agentId) return json(res, { error: "Missing agentId" }, 400);
-      const result = await registerAgent(body.agentId);
-      return json(res, { ok: true, ...result });
+      return json(res, { error: "Removed — agents manage their own keypairs. Use client/agent-client.ts or Phantom wallet." }, 410);
     }
-
-    if (pathname === "/api/escrows/create" && req.method === "POST") {
-      const { initOnChain, createEscrow } = await import("./onchain");
-      await initOnChain();
-      const body = await parseBody(req);
-      if (!body.buyerAgentId || !body.description) return json(res, { error: "Missing buyerAgentId or description" }, 400);
-      const result = await createEscrow(
-        body.buyerAgentId,
-        body.description,
-        body.paymentAmount || 1_000_000,
-        body.buyerCollateral || 100_000,
-        body.sellerCollateral || 50_000,
-      );
-      return json(res, { ok: true, ...result });
-    }
-
-    if (pathname === "/api/escrows/accept" && req.method === "POST") {
-      const { initOnChain, acceptEscrow } = await import("./onchain");
-      await initOnChain();
-      const body = await parseBody(req);
-      if (!body.sellerAgentId || !body.escrowId) return json(res, { error: "Missing sellerAgentId or escrowId" }, 400);
-      const result = await acceptEscrow(body.sellerAgentId, body.escrowId);
-      return json(res, { ok: true, ...result });
-    }
-
-    if (pathname === "/api/escrows/deliver" && req.method === "POST") {
-      const { initOnChain, deliverEscrow } = await import("./onchain");
-      await initOnChain();
-      const body = await parseBody(req);
-      if (!body.sellerAgentId || !body.escrowId) return json(res, { error: "Missing sellerAgentId or escrowId" }, 400);
-      const result = await deliverEscrow(body.sellerAgentId, body.escrowId, body.contentHash || "delivery");
-      return json(res, { ok: true, ...result });
-    }
-
-    if (pathname === "/api/escrows/approve" && req.method === "POST") {
-      const { initOnChain, approveEscrow } = await import("./onchain");
-      await initOnChain();
-      const body = await parseBody(req);
-      if (!body.buyerAgentId || !body.escrowId) return json(res, { error: "Missing buyerAgentId or escrowId" }, 400);
-      const result = await approveEscrow(body.buyerAgentId, body.escrowId);
-      return json(res, { ok: true, ...result });
+    if ((pathname === "/api/escrows/create" || pathname === "/api/escrows/accept" || 
+         pathname === "/api/escrows/deliver" || pathname === "/api/escrows/approve") && req.method === "POST") {
+      return json(res, { error: "Removed — agents sign transactions locally with their own keypairs. Use client/agent-client.ts or Phantom wallet." }, 410);
     }
 
     if (pathname === "/api/escrows" && req.method === "GET") {
