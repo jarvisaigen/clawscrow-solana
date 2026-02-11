@@ -124,12 +124,12 @@ async function main() {
 
     // Need seller address to find their ATA — get from API
     const res = await fetch(`https://clawscrow-solana-production.up.railway.app/api/jobs/${escrowId}`);
-    const job = await res.json();
+    const jobData = await res.json();
+    const job = jobData.job || jobData;
     const seller = new PublicKey(job.seller);
 
     const buyerToken = await getAssociatedTokenAddress(USDC_MINT, buyer.publicKey);
     const sellerToken = await getAssociatedTokenAddress(USDC_MINT, seller);
-    const vaultToken = await getAssociatedTokenAddress(USDC_MINT, vaultPda, true);
 
     const disc = anchorDisc("approve");
     const data = Buffer.concat([disc, encodeU64(escrowId)]);
@@ -138,10 +138,8 @@ async function main() {
       { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
       { pubkey: escrowPda, isSigner: false, isWritable: true },
       { pubkey: vaultPda, isSigner: false, isWritable: true },
-      { pubkey: vaultToken, isSigner: false, isWritable: true },
-      { pubkey: sellerToken, isSigner: false, isWritable: true },
       { pubkey: buyerToken, isSigner: false, isWritable: true },
-      { pubkey: USDC_MINT, isSigner: false, isWritable: false },
+      { pubkey: sellerToken, isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     ];
 
