@@ -648,7 +648,18 @@ const server = createServer(async (req, res) => {
       }
       const role = isArbitrator ? "arbitrator" : "buyer";
 
-      const file = await downloadFile(fileId);
+      // If arbitrator requests buyer's file, auto-redirect to .arb copy
+      let actualFileId = fileId;
+      if (role === "arbitrator") {
+        const escrowFiles = await listFiles(escrowId);
+        const requestedFile = escrowFiles.find((f: any) => f.id === fileId);
+        if (requestedFile && !requestedFile.filename.endsWith(".arb")) {
+          const arbFile = escrowFiles.find((f: any) => f.filename === requestedFile.filename + ".arb");
+          if (arbFile) actualFileId = arbFile.id;
+        }
+      }
+
+      const file = await downloadFile(actualFileId);
       if (!file) return json(res, { error: "File not found" }, 404);
       if (!file.meta.encrypted) {
         res.writeHead(200, {
