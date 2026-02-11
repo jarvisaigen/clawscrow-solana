@@ -181,8 +181,14 @@ async function deliver(keypairPath: string, escrowId: number, filePath: string) 
   const contentHash = createHash("sha256").update(content).digest();
   const contentHashHex = contentHash.toString("hex");
 
-  // Upload file to backend (auto-encrypted with ECIES)
+  // Upload file to backend (auto-encrypted with ECIES) — signed by seller
   const base64Content = content.toString("base64");
+  const { ed25519 } = await import("@noble/curves/ed25519");
+  const uploadMessage = `Upload delivery for escrow ${escrowId} ts ${Date.now()}`;
+  const uploadMsgBytes = new TextEncoder().encode(uploadMessage);
+  const uploadSig = ed25519.sign(uploadMsgBytes, seller.secretKey.slice(0, 32));
+  const uploadSigBase64 = Buffer.from(uploadSig).toString("base64");
+
   const uploadRes = await fetch(`${BACKEND_URL}/api/files`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -191,6 +197,9 @@ async function deliver(keypairPath: string, escrowId: number, filePath: string) 
       filename: path.basename(filePath),
       contentType: "application/octet-stream",
       escrowId: escrowId.toString(),
+      wallet: seller.publicKey.toBase58(),
+      signature: uploadSigBase64,
+      message: uploadMessage,
     }),
   });
   const uploadData: any = await uploadRes.json();

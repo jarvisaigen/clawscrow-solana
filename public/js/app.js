@@ -767,17 +767,34 @@ const App = (() => {
     toast('Filing dispute & starting AI arbitration...', 'info');
     const sig = await sendTx(ix);
     if (sig) {
-      toast('Dispute filed on-chain! Grok 4.1 is evaluating...', 'info');
-      // Trigger backend arbitration with reason
-      fetch(`${CONFIG.API_URL}/api/jobs/${escrowId}/dispute`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: reason.trim() }),
-      }).then(r => r.json()).then(data => {
+      toast('Dispute filed on-chain! Signing authorization for arbitrator...', 'info');
+      // Sign authorization for arbitrator to decrypt delivery
+      try {
+        const authMessage = `Authorize arbitration for escrow ${escrowId} ts ${Date.now()}`;
+        const encoded = new TextEncoder().encode(authMessage);
+        const { signature: authSig } = await window.solana.signMessage(encoded, 'utf8');
+        const authSigBase64 = btoa(String.fromCharCode(...authSig));
+        
+        toast('Triggering Grok 4.1 arbitration...', 'info');
+        const arbRes = await fetch(`${CONFIG.API_URL}/api/jobs/${escrowId}/dispute`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            reason: reason.trim(),
+            wallet: publicKey,
+            signature: authSigBase64,
+            message: authMessage,
+          }),
+        });
+        const data = await arbRes.json();
         if (data.arbitration) {
           toast(`Ruling: ${data.arbitration.finalRuling} (confidence: ${data.arbitration.confidence || 'N/A'})`, 'success');
           loadEscrows(); loadDecisions();
+        } else if (data.error) {
+          toast(`Arbitration error: ${data.error}`, 'error');
         }
-      }).catch(() => {});
+      } catch (e) {
+        toast('Signature cancelled or failed: ' + e.message, 'error');
+      }
       closeModal();
       setTimeout(loadEscrows, 3000);
     }

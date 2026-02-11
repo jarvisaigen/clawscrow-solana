@@ -13,7 +13,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Connection, PublicKey, Keypair } from "@solana/web3.js";
 import { arbitrate, submitRulingOnChain } from "./arbitrator";
 import { uploadFile, getFileMeta, downloadFile, listFiles } from "./files";
-import { eciesEncrypt, eciesDecrypt, hashContent, encryptForDelivery, decryptDelivery } from "./encryption";
+// Only used: getOrCreateEscrowKeys, decryptForBuyer, decryptForArbitrator (imported dynamically)
 import { generateKeyPair, decryptWithPrivateKey } from "./ecies";
 import { saveJobs, loadJobs } from "./persistence";
 import * as storage from "./storage";
@@ -346,6 +346,14 @@ const server = createServer(async (req, res) => {
         return json(res, { error: "Missing required fields: escrowId, description, buyer" }, 400);
       }
 
+      // Verify escrow exists on-chain and buyer matches
+      try {
+        const onChainEscrow = await fetchEscrowById(escrowId);
+        if (onChainEscrow && onChainEscrow.buyer !== buyer) {
+          return json(res, { error: "Buyer does not match on-chain escrow" }, 403);
+        }
+      } catch {}
+
       // Store metadata for chain-read enrichment
       jobMeta.set(escrowId, { escrowId, description, createdAt: Date.now() });
 
@@ -554,10 +562,32 @@ const server = createServer(async (req, res) => {
     // Buyer decrypts via GET /api/files/:id/decrypt?escrowId=X
     if (pathname === "/api/files" && req.method === "POST") {
       const body = await parseBody(req);
-      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey, noEncrypt } = body;
+      const { content, filename, contentType, escrowId, uploadedBy, encryptForPubKey, noEncrypt, wallet, signature, message } = body;
 
       if (!content) {
         return json(res, { error: "Missing required field: content (base64)" }, 400);
+      }
+
+      // If escrowId provided, verify uploader is the seller
+      if (escrowId && wallet && signature && message) {
+        try {
+          const { ed25519 } = await import("@noble/curves/ed25519");
+          const walletPubkey = new PublicKey(wallet);
+          const sigBytes = Buffer.from(signature, "base64");
+          const msgBytes = new TextEncoder().encode(message);
+          const valid = ed25519.verify(sigBytes, msgBytes, walletPubkey.toBytes());
+          if (!valid) return json(res, { error: "Invalid signature" }, 403);
+          
+          const escrow = await fetchEscrowById(parseInt(escrowId));
+          if (escrow && escrow.seller !== wallet) {
+            return json(res, { error: "Only the seller can upload files to this escrow" }, 403);
+          }
+        } catch (err: any) {
+          return json(res, { error: `Auth failed: ${err.message}` }, 403);
+        }
+      } else if (escrowId && !wallet) {
+        // Require auth for escrow uploads
+        return json(res, { error: "File upload to escrow requires wallet signature: { wallet, signature, message }" }, 400);
       }
 
       try {
