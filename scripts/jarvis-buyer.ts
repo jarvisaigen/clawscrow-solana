@@ -150,10 +150,53 @@ async function main() {
     const sig = await sendAndConfirmTransaction(connection, tx, [buyer]);
     console.log(`✅ Approved! TX: ${sig}`);
 
+  } else if (action === "dispute") {
+    const [escrowIdStr, ...reasonParts] = args;
+    const reason = reasonParts.join(" ") || "Work not delivered as described";
+    const escrowId = parseInt(escrowIdStr);
+    const escrowIdBuf = Buffer.alloc(8);
+    escrowIdBuf.writeBigUInt64LE(BigInt(escrowId));
+
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), escrowIdBuf], PROGRAM_ID
+    );
+
+    // 1. On-chain raise_dispute
+    const disc = anchorDisc("raise_dispute");
+    const data = Buffer.concat([disc, encodeU64(escrowId)]);
+    const keys = [
+      { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: escrowPda, isSigner: false, isWritable: true },
+    ];
+    const ix = new TransactionInstruction({ keys, programId: PROGRAM_ID, data });
+    const tx = new Transaction().add(ix);
+    
+    console.log(`Raising dispute on escrow #${escrowId}...`);
+    console.log(`  Reason: ${reason}`);
+    const sig = await sendAndConfirmTransaction(connection, tx, [buyer]);
+    console.log(`✅ Dispute raised on-chain! TX: ${sig}`);
+
+    // 2. Trigger Grok arbitration via API
+    console.log(`Triggering Grok 4.1 arbitration...`);
+    const apiRes = await fetch(`https://clawscrow-solana-production.up.railway.app/api/jobs/${escrowId}/dispute`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    const ruling = await apiRes.json();
+    if (ruling.arbitration) {
+      console.log(`⚖️ Grok ruling: ${ruling.arbitration.finalRuling}`);
+      console.log(`   Confidence: ${ruling.arbitration.confidence}`);
+      console.log(`   Reasoning: ${ruling.arbitration.reasoning?.slice(0, 200)}...`);
+    } else {
+      console.log(`Arbitration response:`, JSON.stringify(ruling).slice(0, 300));
+    }
+
   } else {
     console.log("Usage:");
     console.log("  npx tsx scripts/jarvis-buyer.ts create <description> <payment> <buyerCol> <sellerCol> [sellerAddr]");
     console.log("  npx tsx scripts/jarvis-buyer.ts approve <escrowId>");
+    console.log("  npx tsx scripts/jarvis-buyer.ts dispute <escrowId> <reason>");
   }
 }
 
