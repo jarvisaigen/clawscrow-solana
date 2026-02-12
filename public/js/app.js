@@ -50,6 +50,7 @@ const App = (() => {
   let wallet = null;
   let publicKey = null;
   let escrows = [];
+  let escrowsTotal = 0;
   let decisions = [];
   let currentFilter = 'all';
   let currentPage = 1;
@@ -185,10 +186,12 @@ const App = (() => {
           deliveredAt: j.deliveredAt || 0,
         }));
         escrows.sort((a, b) => b.escrowId - a.escrowId);
+        escrowsTotal = data.total || escrows.length;
       }
     } catch (err) {
       console.error('Load escrows failed:', err);
       escrows = [];
+      escrowsTotal = 0;
     }
     updateStats();
     renderEscrows();
@@ -242,7 +245,7 @@ const App = (() => {
 
   function updateStats() {
     const el = (id) => document.getElementById(id);
-    if (el('statEscrows')) el('statEscrows').textContent = escrows.length;
+    if (el('statEscrows')) el('statEscrows').textContent = escrowsTotal;
     if (el('statDisputes')) el('statDisputes').textContent = escrows.filter(e =>
       e.state === 'resolved_buyer' || e.state === 'resolved_seller'
     ).length;
@@ -252,7 +255,7 @@ const App = (() => {
     if (el('statUptime')) el('statUptime').textContent = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
     if (el('connStatus')) el('connStatus').innerHTML = '● Connected';
     if (el('lastPoll')) el('lastPoll').textContent = new Date().toLocaleTimeString();
-    if (el('contractEscrows')) el('contractEscrows').textContent = escrows.length;
+    if (el('contractEscrows')) el('contractEscrows').textContent = escrowsTotal;
   }
 
   // ─── Render ───
